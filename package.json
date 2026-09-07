@@ -1,0 +1,7 @@
+{
+  "name": "railopt-sih26",
+  "private": true,
+  "scripts": {
+    "demo": "powershell -ExecutionPolicy Bypass -File .\\start-demo.ps1"
+  }
+}

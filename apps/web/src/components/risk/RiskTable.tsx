@@ -49,7 +49,7 @@ export function RiskTable({
                   <td className="px-3 py-2.5 text-slate-700">{task.section}</td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="min-w-[2.5rem] text-right font-semibold text-slate-800">
+                      <span className="min-w-10 text-right font-semibold text-slate-800">
                         {task.riskScore}%
                       </span>
                       <div className="h-2 w-16 overflow-hidden rounded-full bg-slate-200">

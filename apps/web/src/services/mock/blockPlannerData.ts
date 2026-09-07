@@ -48,7 +48,7 @@ export interface PendingTask {
   department: string;
   section: string;
   riskScore: number;
-  priority: "P2" | "P3";
+  priority: "P1" | "P2" | "P3";
   reason: string;
 }
 

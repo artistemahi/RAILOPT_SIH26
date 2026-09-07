@@ -6,7 +6,7 @@ import { RiskFilters } from "../components/risk/RiskFilters";
 import { RiskSummaryCards } from "../components/risk/RiskSummaryCards";
 import { RiskTable } from "../components/risk/RiskTable";
 import { getRiskData } from "../services/riskService";
-import type { RiskDetails, RiskTask } from "../types/risk";
+import type { RiskDetails, RiskSummary, RiskTask } from "../types/risk";
 
 const riskFactorPalette = {
   criticality: "#ef4444",
@@ -18,13 +18,20 @@ const riskFactorPalette = {
 
 export default function RiskManagementPage() {
   const [data, setData] = useState<{
-    summary: any[];
+    summary: RiskSummary[];
     tasks: RiskTask[];
   } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState("A104");
 
   useEffect(() => {
-    void getRiskData().then(setData);
+    void getRiskData()
+      .then(setData)
+      .catch(() => {
+        setError(
+          "Risk data is unavailable. Check the API connection and retry.",
+        );
+      });
   }, []);
 
   const selectedTask = useMemo(() => {
@@ -95,6 +102,19 @@ export default function RiskManagementPage() {
     } satisfies RiskDetails;
   }, [data, selectedAssetId]);
 
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-center text-slate-600">
+        <div className="rounded-xl border border-rose-200 bg-white px-6 py-5 shadow-sm">
+          <p className="text-sm font-semibold text-slate-800">
+            Risk data unavailable
+          </p>
+          <p className="mt-1 text-xs text-slate-500">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600">
@@ -120,6 +140,17 @@ export default function RiskManagementPage() {
                 Identify high-risk maintenance requiring early attention.
               </p>
             </div>
+            <div className="hidden rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-right md:block">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-600">
+                Attention queue
+              </div>
+              <div className="mt-0.5 text-lg font-semibold text-rose-700">
+                {data.tasks.filter((task) => task.riskScore >= 80).length}
+              </div>
+              <div className="text-[10px] text-rose-600">
+                critical risk items
+              </div>
+            </div>
           </div>
 
           <RiskSummaryCards summary={data.summary} />
@@ -132,11 +163,17 @@ export default function RiskManagementPage() {
                 <div className="mb-3 text-[14px] font-semibold text-slate-800">
                   Maintenance Risk List
                 </div>
-                <RiskTable
-                  tasks={data.tasks}
-                  selectedId={selectedAssetId}
-                  onSelect={setSelectedAssetId}
-                />
+                {data.tasks.length ? (
+                  <RiskTable
+                    tasks={data.tasks}
+                    selectedId={selectedAssetId}
+                    onSelect={setSelectedAssetId}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+                    No risk tasks are available.
+                  </div>
+                )}
               </div>
             </div>
 

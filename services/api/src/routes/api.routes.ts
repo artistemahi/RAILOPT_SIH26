@@ -1,6 +1,19 @@
 import { Router } from "express";
 import { getApiInformation } from "../controllers/api.controller.js";
-
+import blockPlannerRouter from "./block-planner.routes.js";
+import databaseRouter from "./database.routes.js";
+import dashboardRouter from "./dashboard.routes.js";
+import riskRouter from "./risk.routes.js";
+import pythonRouter from "./python.routes.js";
+import redisRouter from "./redis.routes.js";
+import minioRouter from "./minio.routes.js";
 export const apiRouter = Router();
 
 apiRouter.get("/", getApiInformation);
+apiRouter.use(databaseRouter);
+apiRouter.use(dashboardRouter);
+apiRouter.use(riskRouter);
+apiRouter.use(blockPlannerRouter);
+apiRouter.use(pythonRouter);
+apiRouter.use(redisRouter);
+apiRouter.use(minioRouter);
