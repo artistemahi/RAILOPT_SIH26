@@ -3,5 +3,8 @@
   "private": true,
   "scripts": {
     "demo": "powershell -ExecutionPolicy Bypass -File .\\start-demo.ps1"
+  },
+  "dependencies": {
+    "csv-parse": "^7.0.2"
   }
 }

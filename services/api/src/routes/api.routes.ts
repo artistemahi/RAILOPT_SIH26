@@ -6,7 +6,9 @@ import dashboardRouter from "./dashboard.routes.js";
 import riskRouter from "./risk.routes.js";
 import pythonRouter from "./python.routes.js";
 import redisRouter from "./redis.routes.js";
+import priorityRouter from "./priority.routes.js";
 import minioRouter from "./minio.routes.js";
+import tasksRouter from "./tasks.routes.js";
 export const apiRouter = Router();
 
 apiRouter.get("/", getApiInformation);
@@ -17,3 +19,5 @@ apiRouter.use(blockPlannerRouter);
 apiRouter.use(pythonRouter);
 apiRouter.use(redisRouter);
 apiRouter.use(minioRouter);
+apiRouter.use("/priority", priorityRouter);
+apiRouter.use("/tasks", tasksRouter);

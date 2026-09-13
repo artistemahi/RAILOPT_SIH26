@@ -1,0 +1,51 @@
+rule_id,rule_name,rule_category,condition,applicability,result_if_failed,reason
+RULE_001,same section,LOCATION,task.section_id == other.section_id,TASK_PAIR,CONDITIONAL,Same-section work is a candidate for coordination.
+RULE_002,shared location,LOCATION,task.location_id == other.location_id,TASK_PAIR,CONDITIONAL,Same location alone is insufficient.
+RULE_003,same block coverage,LOCATION,both task sections in block coverage,TASK_PAIR,CONDITIONAL,Multi-section block can cover both tasks.
+RULE_004,disconnected work areas,LOCATION,not jointly covered by candidate block,TASK_PAIR,INCOMPATIBLE,Disconnected areas cannot share a block.
+RULE_005,asset within corridor,LOCATION,task asset section in selected window coverage,TASK_PAIR,INCOMPATIBLE,Asset must lie inside block corridor.
+RULE_006,required type,BLOCK,task.required_block_type == block.block_type,TASK_PAIR,INCOMPATIBLE,Block type must satisfy task requirement.
+RULE_007,combined support,BLOCK,block.block_type == COMBINED_BLOCK,TASK_PAIR,CONDITIONAL,Combined block may satisfy compatible requirements.
+RULE_008,block capacity,BLOCK,duration + setup + release <= block.max_duration_min,TASK_PAIR,INCOMPATIBLE,Work must fit block capacity.
+RULE_009,window capacity,BLOCK,duration + setup + release <= window.duration_min,TASK_PAIR,INCOMPATIBLE,Work must fit selected window.
+RULE_010,block availability,BLOCK,block.status != UNAVAILABLE,TASK_PAIR,INCOMPATIBLE,Unavailable blocks cannot be selected.
+RULE_011,mandatory collision,RESOURCE,no shared mandatory resource overlaps,TASK_PAIR,INCOMPATIBLE,Exclusive resource cannot serve two overlapping tasks.
+RULE_012,skill,RESOURCE,resource skill >= required skill,TASK_PAIR,INCOMPATIBLE,Required skill must be met.
+RULE_013,availability,RESOURCE,task interval within resource availability,TASK_PAIR,INCOMPATIBLE,Resource must be available.
+RULE_014,department,RESOURCE,resource department matches task department,TASK_PAIR,INCOMPATIBLE,Resource must be appropriate for task.
+RULE_015,optional support,RESOURCE,optional resource may be dropped if mandatory set feasible,TASK_PAIR,CONDITIONAL,Optional resources do not define feasibility alone.
+RULE_016,finish-start,DEPENDENCY,successor.start >= predecessor.end + gap,TASK_PAIR,INCOMPATIBLE,Finish-to-start order must hold.
+RULE_017,start-start,DEPENDENCY,successor.start >= predecessor.start + gap,TASK_PAIR,INCOMPATIBLE,Start-to-start order must hold.
+RULE_018,shared block sequencing,DEPENDENCY,dependent tasks share block only if order fits,TASK_PAIR,CONDITIONAL,A joint block still requires sequencing.
+RULE_019,deadline ordering,DEPENDENCY,successor due >= predecessor due for mandatory dependency,TASK_PAIR,INCOMPATIBLE,Dependency deadlines must be consistent.
+RULE_020,acyclic graph,DEPENDENCY,dependency graph has no cycle,TASK_PAIR,INCOMPATIBLE,Cycles cannot be scheduled.
+RULE_021,train overlap,OPERATIONAL,protected train interval does not overlap maintenance,TASK_PAIR,INCOMPATIBLE,Train movement takes precedence.
+RULE_022,train priority,OPERATIONAL,higher-priority train receives precedence,TASK_PAIR,CONDITIONAL,Maintenance may be deferred.
+RULE_023,traffic density,OPERATIONAL,high-density period incurs disruption penalty,TASK_PAIR,CONDITIONAL,Dense traffic increases operational cost.
+RULE_024,movement status,OPERATIONAL,active/planned movements are considered,TASK_PAIR,CONDITIONAL,Only relevant movements constrain planning.
+RULE_025,restricted approval,OPERATIONAL,restricted block requires authorized approval,TASK_PAIR,CONDITIONAL,Human approval remains required.
+RULE_026,power isolation,ISOLATION,power requirement needs power/combined block,TASK_PAIR,INCOMPATIBLE,Electrical isolation must be supported.
+RULE_027,traffic protection,ISOLATION,traffic requirement needs traffic/combined block,TASK_PAIR,INCOMPATIBLE,Traffic protection must be supported.
+RULE_028,signal protection,ISOLATION,signal requirement needs signal/combined block,TASK_PAIR,INCOMPATIBLE,Signal protection must be supported.
+RULE_029,mixed isolation,ISOLATION,all requested isolation modes supported by block,TASK_PAIR,INCOMPATIBLE,Mixed isolation cannot be assumed.
+RULE_030,authority,ISOLATION,isolation-sensitive work cannot bypass approval,TASK_PAIR,INCOMPATIBLE,Safety authorization is outside optimizer authority.
+RULE_031,inspection before repair,TASK_TYPE,inspection may precede repair,TASK_PAIR,CONDITIONAL,May create dependency.
+RULE_032,repair before test,TASK_TYPE,repair precedes testing,TASK_PAIR,CONDITIONAL,Post-repair testing requires correct order.
+RULE_033,replacement before test,TASK_TYPE,replacement precedes testing,TASK_PAIR,CONDITIONAL,Verification follows replacement.
+RULE_034,preventive coordination,TASK_TYPE,preventive work may coordinate if constraints pass,TASK_PAIR,CONDITIONAL,No special override.
+RULE_035,corrective priority,TASK_TYPE,corrective work receives urgency preference,TASK_PAIR,CONDITIONAL,"Preference only, not a hard safety rule."
+RULE_036,critical,PRIORITY,priority_category == CRITICAL,TASK_PAIR,CONDITIONAL,Critical work gets stronger objective benefit.
+RULE_037,overdue,PRIORITY,is_overdue == True,TASK_PAIR,CONDITIONAL,Overdue work receives lateness penalty.
+RULE_038,priority score,PRIORITY,higher score gets higher benefit,TASK_PAIR,CONDITIONAL,Priority is a soft objective.
+RULE_039,manual override,PRIORITY,override has explicit provenance,TASK_PAIR,CONDITIONAL,Overrides remain auditable.
+RULE_040,low priority deferral,PRIORITY,LOW may be deferred when necessary,TASK_PAIR,CONDITIONAL,Low priority does not override hard constraints.
+RULE_041,window containment,TIMING,task interval contained by window,TASK_PAIR,INCOMPATIBLE,Task must fit window.
+RULE_042,deadline,TIMING,hard due date respected,TASK_PAIR,INCOMPATIBLE,Deadline is a hard rule when configured.
+RULE_043,setup release,TIMING,setup + task + release counted,TASK_PAIR,INCOMPATIBLE,Protection time counts.
+RULE_044,exact fit,TIMING,total required duration == window duration,TASK_PAIR,CONDITIONAL,Exact fit is feasible.
+RULE_045,positive interval,TIMING,end > start,TASK_PAIR,INCOMPATIBLE,Invalid intervals rejected.
+RULE_046,window section coverage,SECTION,task section in window_sections,TASK_PAIR,INCOMPATIBLE,Task must be covered.
+RULE_047,contiguous block,SECTION,consecutive block sections connect,TASK_PAIR,INCOMPATIBLE,Block cannot jump disconnected areas.
+RULE_048,directionality,SECTION,movement direction obeys network directionality,TASK_PAIR,CONDITIONAL,Direction can affect operational feasibility.
+RULE_049,electrification,SECTION,electrical task requires electrified section,TASK_PAIR,INCOMPATIBLE,Electrical work requires suitable infrastructure.
+RULE_050,section status,SECTION,section operational_status permits planning,TASK_PAIR,INCOMPATIBLE,Inactive sections need separate handling.

@@ -1,8 +1,21 @@
-"""ASGI application for the RAILOPT ML service foundation."""
-
 from fastapi import FastAPI
 
-from railopt_ml.api.routes.router import router
+from railopt_ml.api.routes.priority_predict import router as priority_router
 
-app = FastAPI(title="RAILOPT ML Service", version="0.1.0")
-app.include_router(router)
+
+app = FastAPI(
+    title="RAILOPT Priority ML Service",
+    description="AI-powered maintenance priority prediction service",
+    version="1.0.0",
+)
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "service": "railopt-priority-ml",
+    }
+
+
+app.include_router(priority_router)

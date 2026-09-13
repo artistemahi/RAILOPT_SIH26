@@ -1,9 +1,7 @@
 import type { Request, Response } from "express";
 import { PythonServiceError } from "../integrations/python-service.client.js";
-import { predictDelay } from "../services/ml.service.js";
 import { optimizeTrains } from "../services/optimizer.service.js";
 import type {
-  MlPredictionInput,
   OptimizeRequest,
 } from "../types/python-services.js";
 
@@ -20,29 +18,9 @@ function sendPythonError(
     response.status(error.statusCode).json({ error: message });
     return;
   }
+
   console.error(message, error);
   response.status(500).json({ error: message });
-}
-
-export async function predict(
-  request: Request,
-  response: Response,
-): Promise<void> {
-  if (!isRecord(request.body)) {
-    response
-      .status(422)
-      .json({ error: "Prediction input must be a JSON object" });
-    return;
-  }
-
-  try {
-    const result = await predictDelay(
-      request.body as unknown as MlPredictionInput,
-    );
-    response.status(200).json(result);
-  } catch (error) {
-    sendPythonError(response, error, "ML prediction service failed");
-  }
 }
 
 export async function optimize(
@@ -60,6 +38,7 @@ export async function optimize(
     const result = await optimizeTrains(
       request.body as unknown as OptimizeRequest,
     );
+
     response.status(200).json(result);
   } catch (error) {
     sendPythonError(response, error, "Optimizer service failed");
