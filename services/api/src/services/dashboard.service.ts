@@ -2,231 +2,110 @@ import { pool } from "../config/database.js";
 import { redisGet, redisSet } from "../integrations/redis.client.js";
 import { config } from "../config/env.js";
 
-const DASHBOARD_CACHE_KEY = "railopt:dashboard:v1";
+const DASHBOARD_CACHE_KEY = "railopt:dashboard:v2";
 
 type DashboardResponse = {
-  assetSummary: Array<{
-    label: string;
-    value: string;
-    supportText?: string;
-    tone: "default" | "danger" | "warning" | "success";
-  }>;
-  maintenanceTasks: Array<{
-    assetId: string;
-    task: string;
-    department: string;
-    priority: "P1" | "P2" | "P3";
-    riskScore: number;
-    overdueDays: number;
-  }>;
-  recommendedBlock: {
-    blockId: string;
-    corridor: string;
-    timeWindow: string;
-    durationHours: string;
-    compatibleTasks: number;
-    trainImpact: string;
-    priorityCoverage: string;
-  };
-  corridorStatus: Array<{
-    name: string;
-    state: "Normal" | "Busy" | "Blocked" | "Selected";
-  }>;
-  trainImpact: Array<{
-    name: "Low Impact" | "Medium Impact" | "High Impact";
-    value: number;
-    color: string;
-  }>;
-  alerts: Array<{
-    severity: "CRITICAL" | "WARNING" | "INFO";
-    title: string;
-    timestamp: string;
-  }>;
+  assetSummary: Array<{ label: string; value: string; supportText?: string; tone: "default" | "danger" | "warning" | "success" }>;
+  maintenanceTasks: Array<{ assetId: string; task: string; department: string; priority: "P1" | "P2" | "P3"; riskScore: number; overdueDays: number }>;
+  recommendedBlock: { blockId: string; corridor: string; timeWindow: string; durationHours: string; compatibleTasks: number; trainImpact: string; priorityCoverage: string } | null;
+  corridorStatus: Array<{ name: string; state: "Normal" | "Busy" | "Blocked" | "Selected" }>;
+  trainImpact: Array<{ name: "Low Impact" | "Medium Impact" | "High Impact"; value: number; color: string }>;
+  alerts: Array<{ severity: "CRITICAL" | "WARNING" | "INFO"; title: string; timestamp: string }>;
 };
 
-const corridorStatus: DashboardResponse["corridorStatus"] = [
-  { name: "NDLS", state: "Normal" },
-  { name: "ALD", state: "Normal" },
-  { name: "CNB", state: "Busy" },
-  { name: "LKO", state: "Selected" },
-];
-
-const alerts: DashboardResponse["alerts"] = [
-  {
-    severity: "CRITICAL",
-    title: "Signal failure reported at S-104",
-    timestamp: "20 May 2025 | 09:45 AM",
-  },
-  {
-    severity: "WARNING",
-    title: "C1 corridor congestion expected",
-    timestamp: "20 May 2025 | 09:20 AM",
-  },
-  {
-    severity: "INFO",
-    title: "Block B103 completed successfully",
-    timestamp: "20 May 2025 | 08:30 AM",
-  },
-];
-
-const impactColors = {
-  "Low Impact": "#22c55e",
-  "Medium Impact": "#f59e0b",
-  "High Impact": "#ef4444",
-} as const;
-
-function formatDuration(durationMin: number): string {
-  const hours = Math.floor(durationMin / 60);
-  const minutes = durationMin % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")} Hrs`;
-}
-
-function formatTimeWindow(startTime: string, endTime: string): string {
-  return `${startTime.slice(0, 5)} – ${endTime.slice(0, 5)}`;
+function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")} Hrs`;
 }
 
 async function getDashboardDataFromPostgres(): Promise<DashboardResponse> {
-  const [assetsResult, tasksResult, blocksResult, impactsResult] =
-    await Promise.all([
-      pool.query<{ id: string }>("SELECT id FROM assets ORDER BY id"),
-      pool.query<{
-        asset_id: string;
-        task: string;
-        department: string;
-        priority: "P1" | "P2" | "P3";
-        risk_score: number;
-        overdue_days: number;
-      }>(
-        `SELECT asset_id, task, department, priority, risk_score, overdue_days
-         FROM maintenance_tasks
-         ORDER BY risk_score DESC, id`,
-      ),
-      pool.query<{
-        id: string;
-        section: string;
-        start_time: string;
-        end_time: string;
-        duration_min: number;
-        train_impact: string;
-        priority_coverage: string;
-        status: string;
-      }>(
-        `SELECT id, section, start_time, end_time, duration_min, train_impact,
-                priority_coverage, status
-         FROM maintenance_blocks
-         WHERE status IN ('Active', 'Planned')
-         ORDER BY CASE WHEN status = 'Active' THEN 0 ELSE 1 END, id`,
-      ),
-      pool.query<{ impact_level: "Low" | "Medium" | "High" }>(
-        "SELECT impact_level FROM train_impacts",
-      ),
-    ]);
+  const [assets, tasks, blocks, windows, trains, sections] = await Promise.all([
+    pool.query(`SELECT asset_id, section_id, status, condition_score FROM railopt.assets`),
+    pool.query(`
+      SELECT t.asset_id, t.description, t.department,
+             COALESCE(pp.final_priority_score, t.priority_score, 0) AS risk_score,
+             GREATEST(CURRENT_DATE - COALESCE(t.due_date, CURRENT_DATE), 0) AS overdue_days
+      FROM railopt.maintenance_tasks t
+      LEFT JOIN LATERAL (
+        SELECT final_priority_score FROM railopt.priority_predictions
+        WHERE task_id = t.task_id ORDER BY created_at DESC LIMIT 1
+      ) pp ON TRUE
+      ORDER BY COALESCE(pp.final_priority_score, t.priority_score, 0) DESC, t.due_date ASC NULLS LAST
+      LIMIT 20
+    `),
+    pool.query(`SELECT block_id, block_name, status FROM railopt.blocks ORDER BY block_id`),
+    pool.query(`SELECT window_id, block_id, section_id, start_time, end_time, duration_min, available FROM railopt.block_windows ORDER BY start_time`),
+    pool.query(`SELECT section_id, is_freight FROM railopt.train_movements`),
+    pool.query(`SELECT section_id, section_code, operational_status FROM railopt.sections ORDER BY section_code NULLS LAST, section_id`),
+  ]);
 
-  const assets = assetsResult.rows;
-  const tasks = tasksResult.rows;
-  const blocks = blocksResult.rows;
-  const impacts = impactsResult.rows;
-  const highRiskTaskCount = tasks.filter(
-    (task) => task.risk_score >= 70,
-  ).length;
-  const impactedAssetIds = new Set(
-    tasks.filter((task) => task.overdue_days > 0).map((task) => task.asset_id),
-  );
+  const totalAssets = assets.rowCount ?? 0;
+  const availableAssets = assets.rows.filter((a) => String(a.status).toLowerCase() === "active").length;
+  const highRiskAssets = assets.rows.filter((a) => Number(a.condition_score) < 40).length;
+  const activeBlocks = blocks.rows.filter((b) => ["Active", "Planned", "AVAILABLE"].includes(String(b.status))).length;
+  const totalWindows = windows.rowCount ?? 0;
+  const availableWindows = windows.rows.filter((w) => w.available === true).length;
 
-  // Synthetic availability: each asset with an overdue maintenance task is unavailable.
-  const availability = assets.length
-    ? Math.round(
-        ((assets.length - impactedAssetIds.size) / assets.length) * 100,
-      )
-    : 100;
+  const lowCount = windows.rows.filter((w) => w.available === true && Number(w.duration_min) <= 60).length;
+  const mediumCount = windows.rows.filter((w) => w.available === true && Number(w.duration_min) > 60 && Number(w.duration_min) <= 180).length;
+  const highCount = Math.max(0, availableWindows - lowCount - mediumCount);
+  const trainTotal = trains.rowCount ?? 0;
 
-  const recommendedBlock = blocks[0];
-  if (!recommendedBlock) {
-    throw new Error("No active or planned maintenance block is available");
-  }
-
-  const impactLabels = ["Low Impact", "Medium Impact", "High Impact"] as const;
-  const trainImpact = impactLabels.map((label) => {
-    const level = label.replace(" Impact", "") as "Low" | "Medium" | "High";
-    const count = impacts.filter(
-      (impact) => impact.impact_level === level,
-    ).length;
-    return {
-      name: label,
-      value: impacts.length ? Math.round((count / impacts.length) * 100) : 0,
-      color: impactColors[label],
+  const recommended = windows.rows.find((w) => w.available === true) ?? windows.rows[0];
+  let recommendedBlock: DashboardResponse["recommendedBlock"] = null;
+  if (recommended) {
+    const block = blocks.rows.find((b) => b.block_id === recommended.block_id);
+    const section = sections.rows.find((s) => s.section_id === recommended.section_id);
+    recommendedBlock = {
+      blockId: recommended.block_id,
+      corridor: section?.section_code ?? recommended.section_id,
+      timeWindow: `${new Date(recommended.start_time).toISOString().slice(11, 16)} – ${new Date(recommended.end_time).toISOString().slice(11, 16)}`,
+      durationHours: formatDuration(Number(recommended.duration_min)),
+      compatibleTasks: tasks.rows.length,
+      trainImpact: trainTotal ? "See conflict analysis" : "LOW",
+      priorityCoverage: tasks.rows.length ? "Available" : "None",
     };
-  });
+    if (block) recommendedBlock.blockId = block.block_id;
+  }
 
   return {
     assetSummary: [
-      { label: "Total Assets", value: String(assets.length), tone: "default" },
-      {
-        label: "High Risk Assets",
-        value: String(highRiskTaskCount),
-        supportText: assets.length
-          ? `(${((highRiskTaskCount / assets.length) * 100).toFixed(1)}%)`
-          : "(0.0%)",
-        tone: "danger",
-      },
-      { label: "Active Blocks", value: String(blocks.length), tone: "warning" },
-      {
-        label: "Asset Availability",
-        value: `${availability}%`,
-        tone: "success",
-      },
-      {
-        label: "Train Impact",
-        value: impacts.some((impact) => impact.impact_level === "High")
-          ? "HIGH"
-          : impacts.some((impact) => impact.impact_level === "Medium")
-            ? "MEDIUM"
-            : "LOW",
-        tone: "default",
-      },
+      { label: "Total Assets", value: String(totalAssets), tone: "default" },
+      { label: "High Risk Assets", value: String(highRiskAssets), tone: "danger" },
+      { label: "Active Blocks", value: String(activeBlocks), tone: "warning" },
+      { label: "Asset Availability", value: totalAssets ? `${Math.round((availableAssets / totalAssets) * 100)}%` : "100%", tone: "success" },
+      { label: "Available Windows", value: String(availableWindows), supportText: `of ${totalWindows}`, tone: "default" },
     ],
-    maintenanceTasks: tasks.map((task) => ({
+    maintenanceTasks: tasks.rows.map((task) => ({
       assetId: task.asset_id,
-      task: task.task,
-      department: task.department,
-      priority: task.priority,
+      task: task.description ?? task.asset_id,
+      department: task.department ?? "Unknown",
+      priority: Number(task.risk_score) >= 80 ? "P1" : Number(task.risk_score) >= 60 ? "P2" : "P3",
       riskScore: Number(task.risk_score),
       overdueDays: Number(task.overdue_days),
     })),
-    recommendedBlock: {
-      blockId: recommendedBlock.id,
-      corridor: "C1",
-      timeWindow: formatTimeWindow(
-        recommendedBlock.start_time,
-        recommendedBlock.end_time,
-      ),
-      durationHours: formatDuration(Number(recommendedBlock.duration_min)),
-      compatibleTasks: tasks.filter((task) => task.priority !== "P3").length,
-      trainImpact: recommendedBlock.train_impact,
-      priorityCoverage: recommendedBlock.priority_coverage,
-    },
-    corridorStatus,
-    trainImpact,
-    alerts,
+    recommendedBlock,
+    corridorStatus: sections.rows.map((section, index) => ({
+      name: section.section_code ?? section.section_id,
+      state: index === 0 ? "Selected" : section.operational_status === "BLOCKED" ? "Blocked" : "Normal",
+    })),
+    trainImpact: [
+      { name: "Low Impact", value: trainTotal ? Math.round((lowCount / Math.max(totalWindows, 1)) * 100) : 0, color: "#22c55e" },
+      { name: "Medium Impact", value: trainTotal ? Math.round((mediumCount / Math.max(totalWindows, 1)) * 100) : 0, color: "#f59e0b" },
+      { name: "High Impact", value: trainTotal ? Math.round((highCount / Math.max(totalWindows, 1)) * 100) : 0, color: "#ef4444" },
+    ],
+    alerts: [],
   };
 }
 
 export async function getDashboardData(): Promise<DashboardResponse> {
-  const cachedDashboard = await redisGet(DASHBOARD_CACHE_KEY);
-  if (cachedDashboard) {
-    try {
-      return JSON.parse(cachedDashboard) as DashboardResponse;
-    } catch {
-      // Ignore malformed cache data and refresh it from PostgreSQL.
-    }
+  const cached = await redisGet(DASHBOARD_CACHE_KEY);
+  if (cached) {
+    try { return JSON.parse(cached) as DashboardResponse; } catch { /* refresh */ }
   }
-
   const dashboard = await getDashboardDataFromPostgres();
-  await redisSet(
-    DASHBOARD_CACHE_KEY,
-    JSON.stringify(dashboard),
-    config.dashboardCacheTtlSeconds,
-  );
+  await redisSet(DASHBOARD_CACHE_KEY, JSON.stringify(dashboard), config.dashboardCacheTtlSeconds);
   return dashboard;
 }
 

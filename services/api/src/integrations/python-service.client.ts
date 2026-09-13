@@ -12,7 +12,7 @@ export async function postJson<TRequest, TResponse>(
   baseUrl: string,
   path: string,
   payload: TRequest,
-  timeoutMs = 10_000,
+  timeoutMs = 180_000,
 ): Promise<TResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

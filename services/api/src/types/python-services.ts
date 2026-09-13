@@ -63,3 +63,31 @@ export interface OptimizeResponse {
   >;
   metadata: Record<string, number>;
 }
+export interface BlockPlanOptimizeRequest {
+  tables: Record<string, Array<Record<string, unknown>>>;
+  time_limit_seconds?: number;
+  workers?: number;
+}
+
+export interface BlockPlanOptimizeResponse {
+  solver_status: string;
+  objective_value: number;
+  schedule: Array<{
+    task_id: string;
+    scheduled: boolean;
+    window_id: string | null;
+    block_id: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    planning_priority: number;
+    status: string | null;
+  }>;
+  metrics: Record<string, number>;
+  validation: {
+    valid: boolean;
+    violation_count: number;
+    violations: Array<Record<string, unknown>>;
+  };
+  compatibility_analysis: Array<Record<string, unknown>>;
+  conflict_edges: Array<Record<string, unknown>>;
+}
