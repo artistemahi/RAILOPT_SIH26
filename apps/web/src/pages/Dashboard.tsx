@@ -7,21 +7,16 @@ import { RiskTable } from "../components/dashboard/RiskTable";
 import { Sidebar } from "../components/dashboard/Sidebar";
 import { StatCard } from "../components/dashboard/StatCard";
 import { TrainImpactSummary } from "../components/dashboard/TrainImpactSummary";
-import { getDashboardData } from "../services/dashboardService";
+//import { getDashboardData } from "../services/dashboardService";
 import type { DashboardData } from "../types/dashboard";
-
+import { dashboardData } from "../mocks";
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void getDashboardData()
-      .then(setData)
-      .catch(() => {
-        setError(
-          "Dashboard data is unavailable. Check the API connection and retry.",
-        );
-      });
+  setData(dashboardData as DashboardData);
+  setError(null);
   }, []);
 
   if (error) {
