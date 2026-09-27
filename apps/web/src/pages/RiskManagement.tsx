@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { DashboardHeader } from "../components/dashboard/DashboardHeader";
-import { Sidebar } from "../components/dashboard/Sidebar";
 import { RiskDetailsPanel } from "../components/risk/RiskDetailsPanel";
 import {
   emptyRiskFilters,
@@ -123,7 +121,7 @@ export default function RiskManagementPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-center text-slate-600">
+      <div className="flex items-center justify-center p-6 p-6 text-center text-slate-600">
         <div className="rounded-xl border border-rose-200 bg-white px-6 py-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-800">
             Risk data unavailable
@@ -136,20 +134,15 @@ export default function RiskManagementPage() {
 
   if (!data) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600">
+      <div className="flex items-center justify-center p-6 text-slate-600">
         Loading risk data...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <Sidebar />
+    <div className="space-y-4 text-slate-900">
 
-      <div className="ml-52 min-h-screen bg-slate-100">
-        <DashboardHeader title="Risk & Priority" />
-
-        <main className="space-y-4 p-4">
           <div className="flex items-end justify-between gap-4">
             <div>
               <h1 className="text-[28px] font-semibold tracking-tight text-slate-800">
@@ -221,8 +214,6 @@ export default function RiskManagementPage() {
             score is shown. Priorities are soft inputs; hard operational
             constraints are enforced separately by CP-SAT.
           </div>
-        </main>
-      </div>
     </div>
   );
 }

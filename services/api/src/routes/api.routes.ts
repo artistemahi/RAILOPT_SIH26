@@ -15,6 +15,8 @@ import blocksRouter from "./blocks.routes.js";
 import blockWindowsRouter from "./block-windows.routes.js";
 import sectionsRouter from "./sections.routes.js";
 import conflictsRouter from "./conflicts.routes.js";
+import workspaceRouter from "./workspace.routes.js";
+import planVersionsRouter from "./plan-versions.routes.js";
 export const apiRouter = Router();
 
 apiRouter.get("/", getApiInformation);
@@ -26,6 +28,8 @@ apiRouter.use(pythonRouter);
 apiRouter.use(redisRouter);
 apiRouter.use(minioRouter);
 apiRouter.use(networkRouter);
+apiRouter.use(workspaceRouter);
+apiRouter.use(planVersionsRouter);
 apiRouter.use("/priority", priorityRouter);
 apiRouter.use("/tasks", tasksRouter);
 apiRouter.use("/assets", assetsRouter);

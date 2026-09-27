@@ -237,3 +237,16 @@ def test_dependency_cycle_and_deadline_conflict_are_reported():
     assert len(compatibility["deadline_conflicts"]) == 1
     assert result["assignments"] == []  # a cycle can never be satisfied
     assert result["validation"]["passed"]
+
+
+def test_include_details_lists_candidates_rejections_and_edges():
+    data = scenario(include_details=True)
+    data["requirements"][0]["minimum_block_duration_min"] = 200
+    result = plan_blocks(data)
+    details = {row["task_id"]: row for row in result["task_details"]}
+    assert details["T1"]["candidate_windows"] == []
+    assert details["T1"]["rejections"] == {"WINDOW_TOO_SHORT": 1}
+    assert details["T1"]["scheduled_window"] is None
+    assert details["T2"]["scheduled_window"] in details["T2"]["candidate_windows"]
+    assert all(set(edge) == {"a", "b", "kind", "rule", "detail"} for edge in result["compatibility_edges"])
+    assert "task_details" not in plan_blocks(scenario())
