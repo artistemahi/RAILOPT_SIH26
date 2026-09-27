@@ -245,6 +245,6 @@ if (-not $requiredHealthy) {
   exit 1
 }
 
-Write-Status "Demo" "ready at http://localhost:5173/dashboard" "Green"
-Write-Host "Open the Dashboard, Risk & Priority, and Block Planner pages for the SIH demo." -ForegroundColor Cyan
+Write-Status "Demo" "ready at http://localhost:5173/overview" "Green"
+Write-Host "Demo flow: Planning Run -> Versions & Approval -> Replanning -> Monthly Plan (see README)." -ForegroundColor Cyan
 Write-Host "Close each 'RAILOPT - ...' window (or press Ctrl+C in it) to stop the demo processes." -ForegroundColor DarkGray
