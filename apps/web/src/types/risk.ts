@@ -2,17 +2,22 @@ export type PriorityLevel = "P1" | "P2" | "P3";
 export type RiskStatus = "Attention Required" | "Monitor" | "Normal";
 
 export interface RiskTask {
+  taskId: string;
   assetId: string;
   task: string;
   department: string;
   section: string;
   riskScore: number;
+  scoreSource: "ML" | "DATASET";
   priority: PriorityLevel;
   overdueDays: number;
   status: RiskStatus;
+  taskStatus: string;
   riskProbability: number;
   criticality: number;
+  urgencyScore: number;
   condition: string;
+  conditionScore: number | null;
   defectHistory: number;
   operationalImpact: number;
   urgency: "Critical" | "High" | "Medium";
@@ -28,23 +33,23 @@ export interface RiskSummary {
 export interface RiskFactor {
   label: string;
   value: number;
+  display: string;
   color: string;
 }
 
 export interface RiskDetails {
+  taskId: string;
   assetId: string;
   task: string;
   department: string;
   section: string;
-  riskProbability: number;
+  priorityScore: number;
+  scoreSource: "ML" | "DATASET";
   priority: PriorityLevel;
-  criticality: number;
+  taskStatus: string;
   overdueDays: number;
   condition: string;
   factors: RiskFactor[];
-  recommendation: string;
   riskLevel: string;
   urgency: string;
-  operationalImpact: string;
-  planningImplication: string;
 }

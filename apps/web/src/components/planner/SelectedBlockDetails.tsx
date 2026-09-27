@@ -1,32 +1,35 @@
-import type { SelectedBlock } from "../../services/mock/blockPlannerData";
+import type { SelectedBlock } from "../../types/planner";
+
+const impactBadge = {
+  High: "border-red-200 bg-red-50 text-red-700",
+  Medium: "border-amber-200 bg-amber-50 text-amber-700",
+  Low: "border-emerald-200 bg-emerald-50 text-emerald-700",
+};
 
 export function SelectedBlockDetails({ block }: { block: SelectedBlock }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="mb-4 flex items-center justify-between gap-2">
         <div className="text-[12px] font-medium uppercase tracking-[0.08em] text-slate-500">
-          Selected Block Details
+          Selected Window Details
         </div>
-        <button
-          type="button"
-          className="text-[11px] text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-        >
-          Clear
-        </button>
+        <span className="text-[10px] text-slate-400">Pre-optimization</span>
       </div>
 
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-[15px] font-semibold text-slate-800">
           {block.id}
         </div>
-        <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-700">
+        <span
+          className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${impactBadge[block.trainImpact]}`}
+        >
           {block.trainImpact} Impact
         </span>
       </div>
 
       <div className="space-y-3 text-[12px] text-slate-600">
         <div className="grid grid-cols-2 gap-3 border-b border-slate-100 pb-2">
-          <span className="text-slate-500">Block ID</span>
+          <span className="text-slate-500">Window ID</span>
           <span className="text-right font-medium text-slate-800">
             {block.id}
           </span>
@@ -50,7 +53,7 @@ export function SelectedBlockDetails({ block }: { block: SelectedBlock }) {
           </span>
         </div>
         <div className="grid grid-cols-2 gap-3 border-b border-slate-100 pb-2">
-          <span className="text-slate-500">Tasks Scheduled</span>
+          <span className="text-slate-500">Candidate Tasks</span>
           <span className="text-right font-medium text-slate-800">
             {block.tasksScheduled}
           </span>
@@ -67,6 +70,12 @@ export function SelectedBlockDetails({ block }: { block: SelectedBlock }) {
             {block.priorityCoverage}
           </span>
         </div>
+        <div className="grid grid-cols-2 gap-3 border-b border-slate-100 pb-2">
+          <span className="text-slate-500">Window Status</span>
+          <span className="text-right font-medium text-slate-800">
+            {block.blockStatus}
+          </span>
+        </div>
         <div className="grid grid-cols-2 gap-3 pb-2">
           <span className="text-slate-500">Reason</span>
           <span className="text-right font-medium text-slate-800">
@@ -75,12 +84,6 @@ export function SelectedBlockDetails({ block }: { block: SelectedBlock }) {
         </div>
       </div>
 
-      <button
-        type="button"
-        className="mt-4 w-full rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-      >
-        View Tasks in Block
-      </button>
     </div>
   );
 }

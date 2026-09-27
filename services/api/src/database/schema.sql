@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS defects (
     urgency                 VARCHAR(50),
     reported_time           DATE,
     status                  VARCHAR(50),
-    target_resolution_time  TIME,
+    target_resolution_time  INTERVAL,
     is_overdue              BOOLEAN,
     repeat_defect           BOOLEAN,
     estimated_impact        NUMERIC(8,3),

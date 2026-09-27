@@ -8,7 +8,7 @@ export function RiskTable({
 }: {
   tasks: RiskTask[];
   selectedId: string;
-  onSelect: (assetId: string) => void;
+  onSelect: (taskId: string) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -16,11 +16,12 @@ export function RiskTable({
         <table className="min-w-full text-left text-[11px]">
           <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.08em] text-slate-500">
             <tr>
+              <th className="px-3 py-2.5 font-medium">Task ID</th>
               <th className="px-3 py-2.5 font-medium">Asset ID</th>
               <th className="px-3 py-2.5 font-medium">Task</th>
               <th className="px-3 py-2.5 font-medium">Department</th>
               <th className="px-3 py-2.5 font-medium">Section</th>
-              <th className="px-3 py-2.5 font-medium">Risk Score</th>
+              <th className="px-3 py-2.5 font-medium">Priority Score</th>
               <th className="px-3 py-2.5 font-medium">Priority</th>
               <th className="px-3 py-2.5 font-medium">Overdue Days</th>
               <th className="px-3 py-2.5 font-medium">Status</th>
@@ -28,20 +29,21 @@ export function RiskTable({
           </thead>
           <tbody>
             {tasks.map((task) => {
-              const isSelected = task.assetId === selectedId;
+              const isSelected = task.taskId === selectedId;
 
               return (
                 <tr
-                  key={task.assetId}
-                  onClick={() => onSelect(task.assetId)}
+                  key={task.taskId}
+                  onClick={() => onSelect(task.taskId)}
                   className={[
                     "cursor-pointer border-t border-slate-200 transition-colors",
                     isSelected ? "bg-blue-50/60" : "bg-white hover:bg-slate-50",
                   ].join(" ")}
                 >
                   <td className="px-3 py-2.5 font-semibold text-slate-800">
-                    {task.assetId}
+                    {task.taskId}
                   </td>
+                  <td className="px-3 py-2.5 text-slate-700">{task.assetId}</td>
                   <td className="px-3 py-2.5 text-slate-700">{task.task}</td>
                   <td className="px-3 py-2.5 text-slate-700">
                     {task.department}
@@ -50,7 +52,7 @@ export function RiskTable({
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
                       <span className="min-w-10 text-right font-semibold text-slate-800">
-                        {task.riskScore}%
+                        {task.riskScore}
                       </span>
                       <div className="h-2 w-16 overflow-hidden rounded-full bg-slate-200">
                         <div
@@ -58,7 +60,7 @@ export function RiskTable({
                             "h-full rounded-full",
                             task.riskScore >= 80
                               ? "bg-red-500"
-                              : task.riskScore >= 70
+                              : task.riskScore >= 65
                                 ? "bg-amber-500"
                                 : "bg-emerald-500",
                           ].join(" ")}

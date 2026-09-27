@@ -1,17 +1,31 @@
-import { pool } from "../config/database.js";
+import {
+  describeTask,
+  getActiveTasks,
+  getPlanningDate,
+  toConditionLabel,
+  toPriorityLevel,
+  type PriorityLevel,
+} from "./planning-context.js";
+
+const MAX_TASKS = 100;
 
 type RiskTaskResponse = {
+  taskId: string;
   assetId: string;
   task: string;
   department: string;
   section: string;
   riskScore: number;
-  priority: "P1" | "P2" | "P3";
+  scoreSource: "ML" | "DATASET";
+  priority: PriorityLevel;
   overdueDays: number;
   status: "Attention Required" | "Monitor" | "Normal";
+  taskStatus: string;
   riskProbability: number;
   criticality: number;
+  urgencyScore: number;
   condition: string;
+  conditionScore: number | null;
   defectHistory: number;
   operationalImpact: number;
   urgency: "Critical" | "High" | "Medium";
@@ -25,31 +39,20 @@ type RiskSummary = {
 };
 
 export type RiskResponse = {
+  planningDate: string;
   summary: RiskSummary[];
   tasks: RiskTaskResponse[];
 };
 
-type RiskRow = {
-  asset_id: string;
-  task: string;
-  department: string;
-  section: string;
-  risk_score: number;
-  priority: "P1" | "P2" | "P3";
-  overdue_days: number;
-  criticality: number;
-  condition: string;
-};
-
-function getUrgency(riskScore: number): RiskTaskResponse["urgency"] {
-  if (riskScore >= 80) return "Critical";
-  if (riskScore >= 65) return "High";
+function getUrgency(score: number): RiskTaskResponse["urgency"] {
+  if (score >= 80) return "Critical";
+  if (score >= 65) return "High";
   return "Medium";
 }
 
-function getStatus(riskScore: number): RiskTaskResponse["status"] {
-  if (riskScore >= 80) return "Attention Required";
-  if (riskScore >= 65) return "Monitor";
+function getStatus(score: number): RiskTaskResponse["status"] {
+  if (score >= 80) return "Attention Required";
+  if (score >= 65) return "Monitor";
   return "Normal";
 }
 
@@ -58,59 +61,44 @@ function percentage(value: number, total: number): string {
 }
 
 export async function getRiskData(): Promise<RiskResponse> {
-  const result = await pool.query<RiskRow>(
-    `SELECT
-       mt.asset_id,
-       mt.task,
-       mt.department,
-       a.section,
-       COALESCE(rp.risk_score, mt.risk_score) AS risk_score,
-       mt.priority,
-       mt.overdue_days,
-       a.criticality,
-       a.condition
-     FROM maintenance_tasks mt
-     INNER JOIN assets a ON a.id = mt.asset_id
-     LEFT JOIN LATERAL (
-       SELECT risk_score
-       FROM risk_predictions
-       WHERE maintenance_task_id = mt.id
-       ORDER BY prediction_date DESC NULLS LAST, id DESC
-       LIMIT 1
-     ) rp ON true
-     ORDER BY COALESCE(rp.risk_score, mt.risk_score) DESC, mt.id`,
-  );
+  const planningDate = await getPlanningDate();
+  const activeTasks = await getActiveTasks(planningDate);
 
-  const tasks = result.rows.map((row) => {
-    const riskScore = Number(row.risk_score);
-    const overdueDays = Number(row.overdue_days);
-
+  const tasks = activeTasks.map((task) => {
+    const score = task.priorityScore;
     return {
-      assetId: row.asset_id,
-      task: row.task,
-      department: row.department,
-      section: row.section,
-      riskScore,
-      priority: row.priority,
-      overdueDays,
-      status: getStatus(riskScore),
-      riskProbability: riskScore,
-      criticality: Number(row.criticality),
-      condition: row.condition,
-      // These fields are not stored in the current schema; expose transparent
-      // numeric proxies so the response remains compatible with RiskTask.
-      defectHistory: overdueDays,
-      operationalImpact: riskScore,
-      urgency: getUrgency(riskScore),
+      taskId: task.taskId,
+      assetId: task.assetId,
+      task: describeTask(task),
+      department: task.department,
+      section: task.sectionId,
+      riskScore: score,
+      scoreSource: task.scoreSource,
+      priority: toPriorityLevel(score),
+      overdueDays: task.overdueDays,
+      status: getStatus(score),
+      taskStatus: task.status,
+      // No separate risk-probability model exists yet; this is the priority score.
+      riskProbability: score,
+      criticality: Math.round(task.criticality),
+      urgencyScore: Math.round(task.urgency),
+      condition: toConditionLabel(task.conditionScore),
+      conditionScore: task.conditionScore,
+      defectHistory: task.openDefects,
+      operationalImpact: Math.round(task.operationalImpact),
+      urgency: getUrgency(score),
     } satisfies RiskTaskResponse;
   });
 
   const totalTasks = tasks.length;
-  const p1Tasks = tasks.filter((task) => task.priority === "P1").length;
-  const p2Tasks = tasks.filter((task) => task.priority === "P2").length;
-  const p3Tasks = tasks.filter((task) => task.priority === "P3").length;
+  const count = (level: PriorityLevel) =>
+    tasks.filter((task) => task.priority === level).length;
+  const p1Tasks = count("P1");
+  const p2Tasks = count("P2");
+  const p3Tasks = count("P3");
 
   return {
+    planningDate,
     summary: [
       {
         label: "P1 - Critical",
@@ -125,18 +113,18 @@ export async function getRiskData(): Promise<RiskResponse> {
         tone: "warning",
       },
       {
-        label: "P3 - Medium",
+        label: "P3 - Medium / Low",
         value: p3Tasks,
         supportText: percentage(p3Tasks, totalTasks),
         tone: "success",
       },
       {
-        label: "Total Tasks",
+        label: "Active Tasks",
         value: totalTasks,
         supportText: "(100%)",
         tone: "default",
       },
     ],
-    tasks,
+    tasks: tasks.slice(0, MAX_TASKS),
   };
 }

@@ -74,6 +74,12 @@ def predict_priority(
             "success": True,
             "count": len(results),
             "results": results,
+            # Dataset values the model has no training category for; they
+            # encode to zeros and do not influence the prediction.
+            "unmapped_categories": {
+                column: values[:10]
+                for column, values in model_service.last_unmapped.items()
+            },
         }
 
     except HTTPException:

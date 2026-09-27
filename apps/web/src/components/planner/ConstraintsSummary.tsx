@@ -1,4 +1,4 @@
-import type { ConstraintStatus } from "../../services/mock/blockPlannerData";
+import type { ConstraintStatus } from "../../types/planner";
 
 const stateStyles = {
   OK: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -14,7 +14,7 @@ export function ConstraintsSummary({
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="mb-3 text-[12px] font-semibold text-slate-800">
-        Constraints Summary
+        Planning Inputs Check
       </div>
 
       <div className="space-y-2">
@@ -57,12 +57,6 @@ export function ConstraintsSummary({
         ))}
       </div>
 
-      <button
-        type="button"
-        className="mt-4 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-      >
-        View All Constraints
-      </button>
     </div>
   );
 }

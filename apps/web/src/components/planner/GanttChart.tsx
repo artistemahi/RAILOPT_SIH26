@@ -1,5 +1,5 @@
 import { GanttRow } from "./GanttRow";
-import type { GanttRow as GanttRowType } from "../../services/mock/blockPlannerData";
+import type { GanttRow as GanttRowType } from "../../types/planner";
 
 export function GanttChart({
   rows,
@@ -21,26 +21,9 @@ export function GanttChart({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-[10px] text-slate-600">
-            <button
-              type="button"
-              className="rounded-md border border-slate-200 bg-white px-2 py-1"
-            >
-              Zoom Out
-            </button>
-            <button
-              type="button"
-              className="rounded-md border border-slate-200 bg-white px-2 py-1"
-            >
-              Zoom In
-            </button>
-            <button
-              type="button"
-              className="rounded-md border border-slate-200 bg-white px-2 py-1"
-            >
-              Today
-            </button>
-          </div>
+          <span className="text-[10px] text-slate-500">
+            00:00–24:00 · windows past midnight are clipped
+          </span>
         </div>
       </div>
 
@@ -58,11 +41,10 @@ export function GanttChart({
                 "12:00",
                 "16:00",
                 "20:00",
-                "24:00",
               ].map((label) => (
                 <div
                   key={label}
-                  className="px-2 py-2 text-center text-[10px] font-medium text-slate-500"
+                  className="px-2 py-2 text-left text-[10px] font-medium text-slate-500"
                 >
                   {label}
                 </div>

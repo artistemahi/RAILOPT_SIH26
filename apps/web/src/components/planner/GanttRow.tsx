@@ -1,5 +1,5 @@
 import { GanttBlock } from "./GanttBlock";
-import type { GanttRow as GanttRowType } from "../../services/mock/blockPlannerData";
+import type { GanttRow as GanttRowType } from "../../types/planner";
 
 const startHour = 0;
 const endHour = 24;

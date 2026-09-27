@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,23 @@ MODEL_DIR = BASE_DIR / "models"
 
 MODEL_PATH = MODEL_DIR / "xgboost_priority_model.pkl"
 PREPROCESSOR_PATH = MODEL_DIR / "priority_preprocessor.pkl"
+
+# Dataset values whose training-vocabulary equivalent differs by more than
+# case/formatting. Keep this list to unambiguous equivalences only.
+CATEGORY_SYNONYMS: dict[str, dict[str, str]] = {
+    # TRD (traction distribution) is the electrical department.
+    "department": {"trd": "Electrical"},
+    "maintenance_type": {
+        "preventivemaintenance": "Preventive",
+        "correctivemaintenance": "Corrective",
+    },
+    "can_be_rescheduled": {"true": "Yes", "false": "No"},
+}
+
+
+def _normalize_category(value: Any) -> str:
+    """Case- and separator-insensitive key: 'IN_PROGRESS' -> 'inprogress'."""
+    return re.sub(r"[\s_\-]+", "", str(value)).lower()
 
 
 class PriorityModelService:
@@ -42,6 +60,56 @@ class PriorityModelService:
 
         self.model = joblib.load(self.model_path)
         self.preprocessor = joblib.load(self.preprocessor_path)
+        self.category_vocabulary = self._read_category_vocabulary()
+        self.last_unmapped: dict[str, list[str]] = {}
+
+    def _read_category_vocabulary(self) -> dict[str, list[str]]:
+        """Categories the fitted one-hot encoder knows, per input column."""
+        vocabulary: dict[str, list[str]] = {}
+        for _, transformer, columns in self.preprocessor.transformers_:
+            steps = getattr(transformer, "named_steps", {})
+            encoder = steps.get("encoder") if steps else None
+            if encoder is None or not hasattr(encoder, "categories_"):
+                continue
+            for column, categories in zip(columns, encoder.categories_):
+                vocabulary[column] = [str(category) for category in categories]
+        return vocabulary
+
+    def align_categories(self, X: pd.DataFrame) -> pd.DataFrame:
+        """
+        Map dataset category spellings onto the training vocabulary.
+
+        The encoder ignores unknown categories (they encode to all zeros), so
+        'ENGINEERING' would be silently dropped when training saw
+        'Engineering'. Values with no unambiguous match are left unchanged and
+        reported in last_unmapped.
+        """
+        X = X.copy()
+        unmapped: dict[str, list[str]] = {}
+
+        for column, categories in self.category_vocabulary.items():
+            if column not in X.columns:
+                continue
+
+            lookup = {_normalize_category(category): category for category in categories}
+            lookup.update(CATEGORY_SYNONYMS.get(column, {}))
+
+            def align(value: Any) -> Any:
+                if pd.isna(value):
+                    return value
+                return lookup.get(_normalize_category(value), value)
+
+            X[column] = X[column].map(align)
+
+            known = set(categories)
+            missing = sorted(
+                {str(value) for value in X[column].dropna() if str(value) not in known}
+            )
+            if missing:
+                unmapped[column] = missing
+
+        self.last_unmapped = unmapped
+        return X
 
     def predict(
         self,
@@ -98,6 +166,7 @@ class PriorityModelService:
         # -----------------------------------------------------
         # Apply the exact saved preprocessing pipeline
         # -----------------------------------------------------
+        X = self.align_categories(X)
         X_processed = self.preprocessor.transform(X)
 
         # -----------------------------------------------------

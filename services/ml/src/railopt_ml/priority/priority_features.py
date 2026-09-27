@@ -24,6 +24,23 @@ def normalize(series: pd.Series) -> pd.Series:
     ) * 100
 
 
+# Train priority arrives as text in the RAILOPT dataset (HIGH/MEDIUM/LOW) but
+# the priority pipeline counts trains with a 1-5 scale (>= 4 high, 5 critical).
+TRAIN_PRIORITY_LEVELS = {
+    "LOW": 1,
+    "MEDIUM": 3,
+    "HIGH": 4,
+    "CRITICAL": 5,
+}
+
+
+def train_priority_to_numeric(series: pd.Series) -> pd.Series:
+    """Map text train priority to the 1-5 scale; keep numeric values as-is."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    from_text = series.astype(str).str.strip().str.upper().map(TRAIN_PRIORITY_LEVELS)
+    return numeric.fillna(from_text)
+
+
 def build_priority_features(
     tasks: pd.DataFrame,
     assets: pd.DataFrame,
@@ -87,10 +104,7 @@ def build_priority_features(
     # 3. Train priority -> numeric
     # ---------------------------------------------------------
     if "priority" in trains.columns:
-        trains["priority"] = pd.to_numeric(
-            trains["priority"],
-            errors="coerce",
-        )
+        trains["priority"] = train_priority_to_numeric(trains["priority"])
     else:
         trains["priority"] = 0
 
@@ -116,12 +130,12 @@ def build_priority_features(
 
                 critical_defect_count=(
                     "severity",
-                    lambda x: (x == "Critical").sum(),
+                    lambda x: (x.astype(str).str.upper() == "CRITICAL").sum(),
                 ),
 
                 high_defect_count=(
                     "severity",
-                    lambda x: (x == "High").sum(),
+                    lambda x: (x.astype(str).str.upper() == "HIGH").sum(),
                 ),
 
                 overdue_defect_count=(
