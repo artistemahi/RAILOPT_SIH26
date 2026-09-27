@@ -58,7 +58,7 @@ async function scorePriorities(): Promise<PrioritySource> {
 }
 
 const DEFAULT_HORIZON_DAYS = 7;
-const SOLVER_TIME_LIMIT_SECONDS = 20;
+export const SOLVER_TIME_LIMIT_SECONDS = 20;
 
 export type PlanningPayload = Record<string, unknown> & {
   horizon_start: string;
@@ -184,7 +184,7 @@ export async function generateBlockPlan(): Promise<
     config.optimizerServiceUrl,
     "/plan-blocks",
     // Also solve the earlier one-task-per-section model for comparison.
-    { ...payload, compare_modes: true },
+    { ...payload, compare_modes: true, include_details: true },
     // Two solves (coordinated + comparison) plus transfer.
     (2 * SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
   );

@@ -10,6 +10,7 @@ import priorityRouter from "./priority.routes.js";
 import minioRouter from "./minio.routes.js";
 import networkRouter from "./network.routes.js";
 import tasksRouter from "./tasks.routes.js";
+import workspaceRouter from "./workspace.routes.js";
 export const apiRouter = Router();
 
 apiRouter.get("/", getApiInformation);
@@ -21,5 +22,6 @@ apiRouter.use(pythonRouter);
 apiRouter.use(redisRouter);
 apiRouter.use(minioRouter);
 apiRouter.use(networkRouter);
+apiRouter.use(workspaceRouter);
 apiRouter.use("/priority", priorityRouter);
 apiRouter.use("/tasks", tasksRouter);

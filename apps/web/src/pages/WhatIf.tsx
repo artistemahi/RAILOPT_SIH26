@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DashboardHeader } from "../components/dashboard/DashboardHeader";
-import { Sidebar } from "../components/dashboard/Sidebar";
+import { PageHeader } from "../components/rail";
 import { getWhatIfOptions, runWhatIf } from "../services/whatIfService";
 import type {
   WhatIfChange,
@@ -115,7 +114,7 @@ export default function WhatIfPage() {
 
   if (loadError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-sm text-slate-600">
+      <div className="flex items-center justify-center p-6 p-6 text-sm text-slate-600">
         {loadError}
       </div>
     );
@@ -123,7 +122,7 @@ export default function WhatIfPage() {
 
   if (!options) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600">
+      <div className="flex items-center justify-center p-6 text-slate-600">
         Loading what-if data...
       </div>
     );
@@ -170,16 +169,9 @@ export default function WhatIfPage() {
   const horizonStart = `${options.planning_date}T00:00`;
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <Sidebar />
+    <div className="space-y-4 text-slate-900">
+      <PageHeader section="WHAT-IF" title="What-if simulation" subtitle="Change planning conditions and compare the CP-SAT plan before committing" />
 
-      <div className="ml-52 min-h-screen bg-slate-100">
-        <DashboardHeader
-          title="What-if Simulation"
-          subtitle="Change planning conditions and compare the CP-SAT plan before committing."
-        />
-
-        <main className="space-y-4 p-4">
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700">
               Scenario
@@ -333,8 +325,6 @@ export default function WhatIfPage() {
           </section>
 
           {result ? <WhatIfResults result={result} /> : null}
-        </main>
-      </div>
     </div>
   );
 }

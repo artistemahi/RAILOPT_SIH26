@@ -77,6 +77,8 @@ Hard constraints: each task at most once; start only inside a train-free gap of 
 
 Objective (lexicographic): maximise Σ priority weight of placed tasks; then minimise Σ weight × start so higher-priority work starts earlier.
 
+`include_details: true` (sent by the API) adds `task_details` (per pending task: candidate windows, rejection counts by code, up to 5 example rejections, chosen window) and `compatibility_edges` (every graph edge with kind, rule and detail). The Tasks and Coordination screens use these.
+
 `compare_modes: true` (sent by the API) solves the same inputs a second time with one task per section at a time and returns both KPI sets under `comparison`.
 
 Independent validator (no CP-SAT or compatibility code) re-checks: TASK_ONCE, WINDOW_VALID, WITHIN_WINDOW, DURATION, SECTION_COVERED, SECTION_STATUS, BLOCK_CAPACITY, NO_TRAIN_OVERLAP, NO_ASSET_OVERLAP, TASK_TYPE_ORDER, RESOURCE_MATCH, RESOURCE_CAPACITY, DEPENDENCY_ORDER (+ SECTION_EXCLUSIVE for the comparison model).
@@ -102,3 +104,19 @@ Body: `{ "changes": [ ... ] }`, up to 20 changes:
 | TRAIN_ADD | section_id, start_time, end_time | extra train occupation |
 
 Baseline and scenario use the same inputs and stored priorities (no new ML run) and are solved deterministically (one CP-SAT worker, fixed seed), so with no changes the difference is empty. The scenario objective prefers keeping tasks in their baseline window when that costs no priority weight, so only affected work moves. Response: `changes`, `baseline` and `scenario` (solver, validation, kpis), `diff` (`added`, `removed` with reasons, `moved`, `unchanged`), `scenario_assignments`. Invalid changes return 422 with the reason.
+
+## Workspace read endpoints (UI screens)
+
+All read the `railopt.*` tables; nothing is hardcoded.
+
+| Endpoint | Used by | Returns |
+| --- | --- | --- |
+| `GET /api/backlog` | Maintenance Tasks, Overview | active tasks (PENDING / SCHEDULED / IN_PROGRESS) with resolved priority, and task counts by status |
+| `GET /api/block-windows` | Block Windows, Schedule | every block window in the horizon with its sections, overlapping trains and pending tasks on those sections |
+| `GET /api/data/sources` | Data Sources | each dataset CSV, its table, CSV row count vs table row count, stored ML priority runs |
+| `GET /api/data/quality` | Data Quality | live integrity checks (foreign keys, time order, ranges, completeness, overdue work, CSV rows skipped on import) with PASS / WARN / FAIL |
+| `GET /api/settings` | Settings, top bar | planning date and its source, horizon, priority and train-impact bands, solver limits, service health, ML model card |
+
+Known data finding: `task_resources.csv` has 1509 rows but 1507 reach PostgreSQL, because two (task_id, resource_id) pairs are duplicated and the UNIQUE constraint drops the repeats. Data Quality reports this as a WARN.
+
+TMS, SMMS, TDMS and COA are shown on the Data Sources screen only as target architecture. RAILOPT does not connect to any of them.

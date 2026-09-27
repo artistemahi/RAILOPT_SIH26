@@ -17,6 +17,7 @@ from railopt_optimizer.block_planning.validator import ValidationReport, validat
 
 P1_THRESHOLD = 80
 SAMPLE_LIMIT = 20
+TASK_EXAMPLE_LIMIT = 5
 
 
 def _coordination(problem: PlanningProblem, assignments: list[Assignment]) -> dict[str, Any]:
@@ -131,6 +132,47 @@ def _unscheduled(
     return rows
 
 
+def _task_details(
+    problem: PlanningProblem, candidates: CandidateResult, result: SolveResult
+) -> list[dict[str, Any]]:
+    """Per task: candidate windows, why other windows were rejected, and the outcome."""
+    placed = {item.task_id: item for item in result.assignments}
+    by_task = candidates.by_task()
+    rejections: dict[str, list] = {}
+    for rejection in candidates.rejections:
+        rejections.setdefault(rejection.task_id, []).append(rejection)
+    rows = []
+    for task in sorted(problem.tasks.values(), key=lambda t: -t.priority_score):
+        options = by_task.get(task.task_id, [])
+        rejected = rejections.get(task.task_id, [])
+        assignment = placed.get(task.task_id)
+        rows.append(
+            {
+                "task_id": task.task_id,
+                "section_id": task.section_id,
+                "department": task.department,
+                "task_type": task.task_type,
+                "asset_id": task.asset_id,
+                "priority_score": task.priority_score,
+                "candidate_windows": [option.window_id for option in options],
+                "rejections": dict(Counter(r.code for r in rejected).most_common()),
+                "rejection_examples": [
+                    {"window_id": r.window_id, "code": r.code, "message": r.message}
+                    for r in rejected[:TASK_EXAMPLE_LIMIT]
+                ],
+                "scheduled_window": assignment.window_id if assignment else None,
+            }
+        )
+    return rows
+
+
+def _compatibility_edges(compatibility: CompatibilityResult) -> list[dict[str, Any]]:
+    return [
+        {"a": a, "b": b, "kind": data["kind"], "rule": data["rule"], "detail": str(data["detail"])}
+        for a, b, data in compatibility.graph.edges(data=True)
+    ]
+
+
 def _compatibility_summary(compatibility: CompatibilityResult) -> dict[str, Any]:
     return {
         "edges_by_type": compatibility.edge_counts(),
@@ -216,6 +258,10 @@ def summarize(run: PipelineRun) -> dict[str, Any]:
 def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
     run = run_pipeline(payload)
     response = summarize(run)
+
+    if payload.get("include_details"):
+        response["task_details"] = _task_details(run.problem, run.candidates, run.result)
+        response["compatibility_edges"] = _compatibility_edges(run.compatibility)
 
     if payload.get("compare_modes"):
         # Same inputs, earlier conservative model: one task per section at a time.

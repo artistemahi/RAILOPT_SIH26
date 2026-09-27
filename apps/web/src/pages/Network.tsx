@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DashboardHeader } from "../components/dashboard/DashboardHeader";
-import { Sidebar } from "../components/dashboard/Sidebar";
+import { PageHeader } from "../components/rail";
 import { RailMap, type SectionStyle } from "../components/network/RailMap";
-import { generateBlockPlan } from "../services/blockPlannerService";
 import { getNetwork } from "../services/networkService";
 import type { NetworkData, NetworkSection } from "../types/network";
-import type { BlockPlan } from "../types/planner";
+import { usePlan } from "../state/PlanContext";
 
 type Mode = "priority" | "trains" | "plan";
 
@@ -34,9 +32,7 @@ export default function NetworkPage() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("priority");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [plan, setPlan] = useState<BlockPlan | null>(null);
-  const [planning, setPlanning] = useState(false);
-  const [planError, setPlanError] = useState<string | null>(null);
+  const { plan, planning, error: planError, generate } = usePlan();
   const [day, setDay] = useState(0);
 
   useEffect(() => {
@@ -49,16 +45,7 @@ export default function NetworkPage() {
   }, []);
 
   async function loadPlan() {
-    setPlanning(true);
-    setPlanError(null);
-    try {
-      setPlan(await generateBlockPlan());
-      setMode("plan");
-    } catch {
-      setPlanError("Block planning failed. Check that the optimizer service is running.");
-    } finally {
-      setPlanning(false);
-    }
+    if (await generate()) setMode("plan");
   }
 
   const dayAssignments = useMemo(() => {
@@ -99,14 +86,14 @@ export default function NetworkPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6 text-sm text-slate-600">
+      <div className="flex items-center justify-center p-6 p-6 text-sm text-slate-600">
         {error}
       </div>
     );
   }
   if (!data) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600">
+      <div className="flex items-center justify-center p-6 text-slate-600">
         Loading network...
       </div>
     );
@@ -126,16 +113,9 @@ export default function NetworkPage() {
     : [];
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <Sidebar />
+    <div className="space-y-4 text-slate-900">
+      <PageHeader section="NETWORK MAP" title="Network map" subtitle="Stations and sections with maintenance priority, train load and the block plan" />
 
-      <div className="ml-52 min-h-screen bg-slate-100">
-        <DashboardHeader
-          title="Network / Map"
-          subtitle="Stations and sections with maintenance priority, train load and the block plan."
-        />
-
-        <main className="space-y-4 p-4">
           <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
             {(
               [
@@ -301,8 +281,6 @@ export default function NetworkPage() {
               )}
             </div>
           </section>
-        </main>
-      </div>
     </div>
   );
 }
