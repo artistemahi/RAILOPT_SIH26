@@ -8,8 +8,6 @@ import type {
   PriorityPredictionResponse,
 } from "../types/python-services.js";
 
-const MODEL_VERSION = "manas-xgboost-v1";
-
 export async function generatePriorityScores(): Promise<
   PriorityPredictionResponse & {
     run_id: string;
@@ -104,7 +102,7 @@ export async function generatePriorityScores(): Promise<
           result.calculated_priority_score,
           result.predicted_priority_score,
           result.final_priority_score,
-          MODEL_VERSION,
+          prediction.model_version,
         ],
       );
     }

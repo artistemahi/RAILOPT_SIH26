@@ -16,8 +16,17 @@ export function RiskDetailsPanel({ details }: { details: RiskDetails }) {
     ["Section", details.section],
     [
       "Priority Score",
-      `${details.priorityScore} (${details.scoreSource === "ML" ? "ML final score" : "dataset score"})`,
+      `${details.priorityScore} (${
+        details.scoreSource === "OVERRIDE"
+          ? "planner override"
+          : details.scoreSource === "ML"
+            ? "ML model"
+            : "dataset score"
+      })`,
     ],
+    ...(details.overrideReason
+      ? ([["Override Reason", details.overrideReason]] as Array<[string, string]>)
+      : []),
     ["Overdue Days", String(details.overdueDays)],
     ["Asset Condition", details.condition],
   ];

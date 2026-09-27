@@ -3,18 +3,77 @@ import { config } from "../config/env.js";
 import { postJson } from "../integrations/python-service.client.js";
 import type { BlockPlanResponse } from "../types/python-services.js";
 import { getActiveTasks, getPlanningDate } from "./planning-context.js";
+import { generatePriorityScores } from "./priority.service.js";
+
+export type PrioritySource = {
+  source: "ML" | "DATASET";
+  run_id: string | null;
+  model_version: string | null;
+  note: string | null;
+};
+
+/**
+ * Score every task with the ML priority model first, so CP-SAT plans with
+ * fresh ML priorities. If the ML service is unavailable the planner falls
+ * back to the dataset priority_score and says so in the response.
+ */
+async function scorePriorities(): Promise<PrioritySource> {
+  try {
+    const prediction = await generatePriorityScores();
+    return {
+      source: "ML",
+      run_id: prediction.run_id,
+      model_version: prediction.model_version,
+      note: null,
+    };
+  } catch (error) {
+    console.error("ML priority scoring failed; using stored priorities:", error);
+    // Planning then reads the latest stored ML scores, if any exist.
+    const previous = await pool.query<{
+      run_id: string;
+      model_version: string;
+      created: string;
+    }>(
+      `SELECT run_id, model_version,
+              to_char(created_at, 'YYYY-MM-DD HH24:MI') AS created
+       FROM railopt.priority_predictions
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    );
+    const run = previous.rows[0];
+    return run
+      ? {
+          source: "ML",
+          run_id: run.run_id,
+          model_version: run.model_version,
+          note: `ML service unavailable; using the previous ML run from ${run.created}`,
+        }
+      : {
+          source: "DATASET",
+          run_id: null,
+          model_version: null,
+          note: "ML service unavailable and no ML run stored; dataset priority_score used",
+        };
+  }
+}
 
 const DEFAULT_HORIZON_DAYS = 7;
 const SOLVER_TIME_LIMIT_SECONDS = 20;
 
 /**
- * Build the planning input from the railopt.* tables and ask the optimizer's
- * CP-SAT block planner for a plan. Only PENDING tasks are planned;
- * SCHEDULED and IN_PROGRESS work is treated as already committed.
+ * ML priority -> CP-SAT plan. Scores tasks with the ML model, builds the
+ * planning input from the railopt.* tables and asks the optimizer's CP-SAT
+ * block planner for a plan. Only PENDING tasks are planned; SCHEDULED and
+ * IN_PROGRESS work is treated as already committed.
  */
 export async function generateBlockPlan(): Promise<
-  BlockPlanResponse & { planning_date: string; horizon_days: number }
+  BlockPlanResponse & {
+    planning_date: string;
+    horizon_days: number;
+    priority: PrioritySource;
+  }
 > {
+  const priority = await scorePriorities();
   const planningDate = await getPlanningDate();
   const horizonDays = Number(process.env.PLANNING_HORIZON_DAYS) || DEFAULT_HORIZON_DAYS;
 
@@ -115,5 +174,10 @@ export async function generateBlockPlan(): Promise<
     (2 * SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
   );
 
-  return { ...result, planning_date: planningDate, horizon_days: horizonDays };
+  return {
+    ...result,
+    planning_date: planningDate,
+    horizon_days: horizonDays,
+    priority,
+  };
 }

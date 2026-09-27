@@ -25,65 +25,58 @@ class PriorityPredictionRequest(BaseModel):
     trains: list[dict[str, Any]] = Field(default_factory=list)
 
 
+@router.get("/model")
+def model_info() -> dict[str, Any]:
+    """Model version, features and training metrics."""
+    return model_service.metadata
+
+
 @router.post("/predict")
 def predict_priority(
     request: PriorityPredictionRequest,
 ) -> dict[str, Any]:
+    """
+    Score tasks with the v2 priority model.
 
-    try:
-        if not request.tasks:
-            raise HTTPException(
-                status_code=400,
-                detail="At least one maintenance task is required.",
-            )
-
-        tasks_df = pd.DataFrame(request.tasks)
-        assets_df = pd.DataFrame(request.assets)
-        defects_df = pd.DataFrame(request.defects)
-        trains_df = pd.DataFrame(request.trains)
-
-        features_df = build_priority_features(
-            tasks=tasks_df,
-            assets=assets_df,
-            defects=defects_df,
-            trains=trains_df,
+    final_priority_score is the model prediction. calculated_priority_score is
+    the earlier rule-based score (criticality, urgency, impact with train
+    pressure, overdue), returned for reference only.
+    """
+    if not request.tasks:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one maintenance task is required.",
         )
 
-        result_df = model_service.predict(features_df)
+    try:
+        tasks_df = pd.DataFrame(request.tasks)
+        defects_df = pd.DataFrame(request.defects)
 
-        results = []
+        predicted = model_service.predict(tasks_df, defects_df)
+        calculated = build_priority_features(
+            tasks=tasks_df,
+            assets=pd.DataFrame(request.assets),
+            defects=defects_df,
+            trains=pd.DataFrame(request.trains),
+        )["calculated_priority_score"]
 
-        for _, row in result_df.iterrows():
-            results.append(
-                {
-                    "task_id": row.get("task_id"),
-                    "asset_id": row.get("asset_id"),
-                    "calculated_priority_score": float(
-                        row["calculated_priority_score"]
-                    ),
-                    "predicted_priority_score": float(
-                        row["predicted_priority_score"]
-                    ),
-                    "final_priority_score": float(
-                        row["final_priority_score"]
-                    ),
-                }
-            )
+        results = [
+            {
+                "task_id": task.get("task_id"),
+                "asset_id": task.get("asset_id"),
+                "calculated_priority_score": round(float(calculated.iloc[index]), 3),
+                "predicted_priority_score": round(float(predicted.iloc[index]), 3),
+                "final_priority_score": round(float(predicted.iloc[index]), 3),
+            }
+            for index, task in enumerate(request.tasks)
+        ]
 
         return {
             "success": True,
             "count": len(results),
+            "model_version": model_service.model_version,
             "results": results,
-            # Dataset values the model has no training category for; they
-            # encode to zeros and do not influence the prediction.
-            "unmapped_categories": {
-                column: values[:10]
-                for column, values in model_service.last_unmapped.items()
-            },
         }
-
-    except HTTPException:
-        raise
 
     except Exception as exc:
         print("Priority prediction failed:", exc)

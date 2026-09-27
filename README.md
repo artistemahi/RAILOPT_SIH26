@@ -51,7 +51,7 @@ psql -U postgres -d railopt -f services/api/src/database/schema.sql
 npm run import --prefix services/api
 ```
 
-Set `DATABASE_URL` in `services/api/.env` to that database. The Dashboard, Risk & Priority and Block Planner APIs read the `railopt.*` tables. Their planning date defaults to the first day that has block windows; override it with `PLANNING_DATE=YYYY-MM-DD` in `services/api/.env`. To use ML priority scores instead of the dataset's `priority_score`, call `POST /api/priority/predict` once with the ML service running.
+Set `DATABASE_URL` in `services/api/.env` to that database. The Dashboard, Risk & Priority and Block Planner APIs read the `railopt.*` tables. Their planning date defaults to the first day that has block windows; override it with `PLANNING_DATE=YYYY-MM-DD` in `services/api/.env`. **Generate Block Plan** on the Block Planner page runs the full pipeline: the ML priority model scores every task (planner overrides take precedence), then CP-SAT plans with those priorities. See `docs/ml/priority-model.md`.
 
 Open `http://localhost:5173/dashboard` after the launcher reports `Demo: ready`. The demo journey is Dashboard → Risk & Priority → Block Planner → Optimize Schedule.
 

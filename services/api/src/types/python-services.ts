@@ -32,6 +32,7 @@ export interface PriorityPredictionResult {
 export interface PriorityPredictionResponse {
   success: boolean;
   count: number;
+  model_version: string;
   results: PriorityPredictionResult[];
 }
 

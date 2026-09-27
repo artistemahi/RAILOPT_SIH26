@@ -187,10 +187,11 @@ export function BlockPlanPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-700">
-            CP-SAT block plan
+            ML priority → CP-SAT block plan
           </p>
           <p className="mt-1 max-w-3xl text-xs text-slate-600">
-            Assigns pending tasks to available block windows over the planning
+            Each run first scores every task with the ML priority model (planner
+            overrides take precedence), then CP-SAT assigns pending tasks to available block windows over the planning
             horizon. Hard constraints: window fit (incl. setup/release), no work
             during train movements on the section, resource capacity and skill,
             mandatory dependencies, one job per asset at a time and repair or
@@ -218,6 +219,28 @@ export function BlockPlanPanel({
 
       {plan ? (
         <div className="mt-4 space-y-4">
+          <div
+            className={[
+              "rounded-md border px-3 py-2 text-[11px]",
+              plan.priority.source === "ML" && !plan.priority.note
+                ? "border-blue-200 bg-blue-50 text-blue-900"
+                : "border-amber-200 bg-amber-50 text-amber-900",
+            ].join(" ")}
+          >
+            {plan.priority.source === "ML" ? (
+              <>
+                Priorities: <span className="font-semibold">{plan.priority.model_version}</span>
+                {" · run "}
+                <span className="font-mono">{plan.priority.run_id?.slice(0, 8)}</span>
+                {" · manual planner overrides kept"}
+                {plan.priority.note ? (
+                  <div className="mt-0.5 text-amber-800">{plan.priority.note}</div>
+                ) : null}
+              </>
+            ) : (
+              <>Priorities: dataset score. {plan.priority.note}</>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
             <Stat
               label="Solver"

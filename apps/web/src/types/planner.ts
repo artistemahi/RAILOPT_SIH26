@@ -93,6 +93,12 @@ export type BlockPlanKpis = BlockPlan["kpis"];
 export interface BlockPlan {
   planning_date: string;
   horizon_days: number;
+  priority: {
+    source: "ML" | "DATASET";
+    run_id: string | null;
+    model_version: string | null;
+    note: string | null;
+  };
   solver: {
     status: string;
     wall_time_seconds: number;
