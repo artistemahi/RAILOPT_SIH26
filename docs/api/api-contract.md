@@ -18,6 +18,8 @@
 | GET | /api/risk | Active tasks ranked by priority score (top 100) with priority inputs | Implemented |
 | GET | /api/planner | Block windows (Gantt rows), candidate tasks, planning-input checks, train movements | Implemented |
 | POST | /api/planner/plan-blocks | CP-SAT maintenance block plan for PENDING tasks over the planning horizon, with independent validation, KPIs and reasons for unscheduled tasks | Implemented |
+| GET | /api/planner/what-if/options | Windows, resources, pending tasks and sections for building a scenario | Implemented |
+| POST | /api/planner/what-if | Solve the current plan and a changed scenario; return KPIs for both and the task-level difference | Implemented |
 | POST | /api/optimize | CP-SAT train departure sequencing (minimum headway per section) | Implemented |
 | POST | /api/priority/predict | Run the ML priority model on all tasks and store results | Implemented |
 | GET | /api/priority, /api/priority/:taskId | Latest stored ML priority results | Implemented |
@@ -83,3 +85,19 @@ KPIs: tasks scheduled, P1 (score ≥ 80) scheduled, priority-weighted completion
 Compatibility rules not modelled: RULE_017 start-to-start (no such dependencies in the dataset), RULE_022–024 train priority/density/status preferences, RULE_025/030 approval (outside optimizer authority; the plan is a recommendation), RULE_031 inspection-before-repair and RULE_035–040 priority preferences (the objective uses the priority score), RULE_042 hard due dates, RULE_047–048 network contiguity and direction.
 
 Tests: `services/optimizer/tests/test_block_planning.py` (`.venv/bin/python -m pytest` from `services/optimizer`).
+
+## What-if simulation (`POST /api/planner/what-if`)
+
+Body: `{ "changes": [ ... ] }`, up to 20 changes:
+
+| type | fields | effect |
+| --- | --- | --- |
+| WINDOW_UNAVAILABLE | window_id | window cannot be used |
+| WINDOW_SHORTEN | window_id, minutes | window ends earlier |
+| RESOURCE_UNAVAILABLE | resource_id | resource status set to unavailable |
+| TASK_DURATION | task_id, minutes | work time of a pending task increases |
+| TASK_PRIORITY | task_id, priority_score | priority 0–100 |
+| TASK_REMOVE | task_id | task left out of planning |
+| TRAIN_ADD | section_id, start_time, end_time | extra train occupation |
+
+Baseline and scenario use the same inputs and stored priorities (no new ML run) and are solved deterministically (one CP-SAT worker, fixed seed), so with no changes the difference is empty. The scenario objective prefers keeping tasks in their baseline window when that costs no priority weight, so only affected work moves. Response: `changes`, `baseline` and `scenario` (solver, validation, kpis), `diff` (`added`, `removed` with reasons, `moved`, `unchanged`), `scenario_assignments`. Invalid changes return 422 with the reason.

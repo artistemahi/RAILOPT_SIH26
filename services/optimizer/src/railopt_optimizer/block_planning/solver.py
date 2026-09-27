@@ -21,8 +21,13 @@ Hard constraints
 
 Objective
     lexicographic: first maximise sum(priority weight of placed tasks); then,
-    among plans with the same placed weight, minimise sum(weight * start) so
+    when a reference plan is given (what-if), keep as many tasks as possible
+    in their reference window; then minimise sum(weight * start) so
     higher-priority work starts earlier.
+
+Deterministic mode (one worker, fixed seed) returns the same plan for the
+same inputs; multi-worker search may return a different plan of equal
+objective on each run.
 """
 
 from __future__ import annotations
@@ -63,7 +68,10 @@ def solve(
     time_limit_seconds: float = 20.0,
     workers: int = 8,
     allow_coordination: bool = True,
+    deterministic: bool = False,
+    reference: dict[str, str] | None = None,
 ) -> SolveResult:
+    """reference: task_id -> window_id of a previous plan to stay close to."""
     model = cp_model.CpModel()
     by_task = candidates.by_task()
 
@@ -154,19 +162,27 @@ def solve(
         task_id: int(round(problem.tasks[task_id].priority_score * PRIORITY_SCALE))
         for task_id in task_present
     }
-    # Scale the primary term above the largest possible tie-break total so the
-    # tie-break can never trade away placed priority weight.
-    primary_scale = sum(weights.values()) * (problem.horizon_end + 1) + 1
+    # Each term is scaled above the largest possible total of the terms below
+    # it, so a lower term can never trade away a higher one.
+    earliness_bound = sum(weights.values()) * (problem.horizon_end + 1) + 1
+    kept = [
+        placed[(task_id, window_id)]
+        for task_id, window_id in (reference or {}).items()
+        if (task_id, window_id) in placed
+    ]
+    stability_scale = earliness_bound
+    primary_scale = (len(kept) + 1) * stability_scale
     model.Maximize(
-        sum(
-            primary_scale * weights[t] * task_present[t] - weights[t] * task_start[t]
-            for t in task_present
-        )
+        sum(primary_scale * weights[t] * task_present[t] for t in task_present)
+        + sum(stability_scale * x for x in kept)
+        - sum(weights[t] * task_start[t] for t in task_present)
     )
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_seconds
-    solver.parameters.num_search_workers = workers
+    solver.parameters.num_search_workers = 1 if deterministic else workers
+    if deterministic:
+        solver.parameters.random_seed = 0
     status = solver.Solve(model)
     status_name = solver.StatusName(status)
 

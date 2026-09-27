@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from railopt_optimizer.block_planning.service import plan_blocks
+from railopt_optimizer.block_planning.what_if import run_what_if
 
 router = APIRouter(tags=["block-planning"])
 
@@ -106,3 +107,31 @@ def plan_blocks_route(request: PlanBlocksRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=f"Invalid planning input: {error}") from error
     except Exception as error:
         raise HTTPException(status_code=500, detail="Block planning failed") from error
+
+
+class WhatIfChange(BaseModel):
+    type: str
+    window_id: str | None = None
+    resource_id: str | None = None
+    task_id: str | None = None
+    section_id: str | None = None
+    minutes: int | None = None
+    priority_score: float | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+
+
+class WhatIfRequest(BaseModel):
+    planning: PlanBlocksRequest
+    changes: list[WhatIfChange] = Field(default_factory=list, max_length=20)
+
+
+@router.post("/what-if")
+def what_if_route(request: WhatIfRequest) -> dict[str, Any]:
+    changes = [change.model_dump(exclude_none=True) for change in request.changes]
+    try:
+        return run_what_if(request.planning.model_dump(), changes)
+    except (ValueError, KeyError) as error:
+        raise HTTPException(status_code=422, detail=f"Invalid scenario: {error}") from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="What-if simulation failed") from error

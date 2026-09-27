@@ -23,7 +23,7 @@ const navItems: NavItem[] = [
   { label: "Block Planner", icon: <TrainIcon />, to: "/planner" },
   { label: "Network / Map", icon: <MapIcon />, disabled: true },
   { label: "Recommendations", icon: <RecommendationIcon />, disabled: true },
-  { label: "What-if / Simulation", icon: <BarChartIcon />, disabled: true },
+  { label: "What-if / Simulation", icon: <BarChartIcon />, to: "/what-if" },
   { label: "Emergency Replanning", icon: <AlertIcon />, disabled: true },
   { label: "Audit Log", icon: <BarChartIcon />, disabled: true },
   { label: "Reports", icon: <RecommendationIcon />, disabled: true },

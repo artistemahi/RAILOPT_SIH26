@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 from railopt_optimizer.block_planning.candidates import CandidateResult, generate_candidates
@@ -12,7 +13,7 @@ from railopt_optimizer.block_planning.compatibility import (
 )
 from railopt_optimizer.block_planning.model import PlanningProblem, build_problem
 from railopt_optimizer.block_planning.solver import Assignment, SolveResult, solve
-from railopt_optimizer.block_planning.validator import validate
+from railopt_optimizer.block_planning.validator import ValidationReport, validate
 
 P1_THRESHOLD = 80
 SAMPLE_LIMIT = 20
@@ -140,16 +141,41 @@ def _compatibility_summary(compatibility: CompatibilityResult) -> dict[str, Any]
     }
 
 
-def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
+@dataclass
+class PipelineRun:
+    problem: PlanningProblem
+    candidates: CandidateResult
+    compatibility: CompatibilityResult
+    result: SolveResult
+    report: ValidationReport
+
+
+def run_pipeline(
+    payload: dict[str, Any],
+    deterministic: bool = False,
+    reference: dict[str, str] | None = None,
+    allow_coordination: bool = True,
+) -> PipelineRun:
+    """Candidates -> compatibility -> CP-SAT -> independent validation."""
     problem = build_problem(payload)
     candidates = generate_candidates(problem)
     compatibility = build_compatibility(problem, candidates)
-    time_limit = float(payload.get("time_limit_seconds", 20))
+    result = solve(
+        problem,
+        candidates,
+        compatibility,
+        time_limit_seconds=float(payload.get("time_limit_seconds", 20)),
+        allow_coordination=allow_coordination,
+        deterministic=deterministic,
+        reference=reference,
+    )
+    report = validate(problem, result.assignments, section_exclusive=not allow_coordination)
+    return PipelineRun(problem, candidates, compatibility, result, report)
 
-    result = solve(problem, candidates, compatibility, time_limit_seconds=time_limit)
-    report = validate(problem, result.assignments)
 
-    response: dict[str, Any] = {
+def summarize(run: PipelineRun) -> dict[str, Any]:
+    problem, result = run.problem, run.result
+    return {
         "solver": {
             "status": result.status,
             "wall_time_seconds": round(result.wall_time, 3),
@@ -158,13 +184,13 @@ def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
             "constraints": result.constraints,
         },
         "validation": {
-            "passed": report.passed,
-            "checks": report.checks,
-            "violations": [vars(v) for v in report.violations],
+            "passed": run.report.passed,
+            "checks": run.report.checks,
+            "violations": [vars(v) for v in run.report.violations],
         },
-        "kpis": _kpis(problem, candidates, result),
+        "kpis": _kpis(problem, run.candidates, result),
         "coordination": _coordination(problem, result.assignments),
-        "compatibility": _compatibility_summary(compatibility),
+        "compatibility": _compatibility_summary(run.compatibility),
         "assignments": [
             {
                 "task_id": item.task_id,
@@ -180,27 +206,29 @@ def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
             }
             for item in result.assignments
         ],
-        "unscheduled": _unscheduled(problem, candidates, result),
+        "unscheduled": _unscheduled(problem, run.candidates, result),
         "rejection_summary": dict(
-            Counter(r.code for r in candidates.rejections if r.window_id).most_common()
+            Counter(r.code for r in run.candidates.rejections if r.window_id).most_common()
         ),
     }
 
+
+def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
+    run = run_pipeline(payload)
+    response = summarize(run)
+
     if payload.get("compare_modes"):
         # Same inputs, earlier conservative model: one task per section at a time.
-        exclusive = solve(
-            problem, candidates, compatibility, time_limit_seconds=time_limit, allow_coordination=False
-        )
-        exclusive_report = validate(problem, exclusive.assignments, section_exclusive=True)
+        exclusive = run_pipeline(payload, allow_coordination=False)
         response["comparison"] = {
             "section_exclusive": {
-                "solver_status": exclusive.status,
-                "validation_passed": exclusive_report.passed,
-                **_kpis(problem, candidates, exclusive),
+                "solver_status": exclusive.result.status,
+                "validation_passed": exclusive.report.passed,
+                **_kpis(exclusive.problem, exclusive.candidates, exclusive.result),
             },
             "coordinated": {
-                "solver_status": result.status,
-                "validation_passed": report.passed,
+                "solver_status": run.result.status,
+                "validation_passed": run.report.passed,
                 **response["kpis"],
             },
         }

@@ -2,6 +2,7 @@ export class PythonServiceError extends Error {
   constructor(
     message: string,
     readonly statusCode: number,
+    readonly detail: string | null = null,
   ) {
     super(message);
     this.name = "PythonServiceError";
@@ -27,9 +28,14 @@ export async function postJson<TRequest, TResponse>(
 
     const responseBody = await response.json().catch(() => null);
     if (!response.ok) {
+      const detail =
+        responseBody && typeof responseBody.detail === "string"
+          ? responseBody.detail
+          : null;
       throw new PythonServiceError(
         `Python service returned HTTP ${response.status}`,
         response.status,
+        detail,
       );
     }
 
