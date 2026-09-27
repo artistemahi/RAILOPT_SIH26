@@ -2,8 +2,7 @@ const legendItems = [
   { label: "Low Impact", color: "bg-emerald-500" },
   { label: "Medium Impact", color: "bg-amber-400" },
   { label: "High Impact", color: "bg-red-500" },
-  { label: "Approved", color: "bg-blue-500" },
-  { label: "Unscheduled", color: "bg-slate-300" },
+  { label: "Unavailable window", color: "bg-slate-300" },
 ];
 
 export function ImpactLegend() {

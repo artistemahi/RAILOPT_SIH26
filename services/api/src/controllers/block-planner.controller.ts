@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { PythonServiceError } from "../integrations/python-service.client.js";
+import { generateBlockPlan } from "../services/block-plan.service.js";
 import {
   getBlockPlannerData,
   type BlockPlannerResponse,
@@ -53,5 +54,18 @@ export async function optimizeBlockPlanner(
       return;
     }
     response.status(500).json({ error: "Block planner optimization failed" });
+  }
+}
+
+export async function planBlocks(
+  _request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    response.status(200).json(await generateBlockPlan());
+  } catch (error) {
+    console.error("Block planning failed:", error);
+    const status = error instanceof PythonServiceError ? error.statusCode : 500;
+    response.status(status).json({ error: "Block planning failed" });
   }
 }

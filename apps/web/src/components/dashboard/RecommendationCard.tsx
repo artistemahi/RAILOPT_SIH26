@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { RecommendedBlock } from "../../types/dashboard";
 import { InfoIcon } from "./icons";
 
@@ -10,10 +11,13 @@ export function RecommendationCard({
     <div className="rounded-xl border border-slate-200 bg-white p-3.5">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="text-[14px] font-semibold text-slate-800">
-          Recommended Block
+          Top Candidate Window
         </h2>
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-slate-500">
-          Demo
+        <span
+          title="Ranked by number of fitting tasks, then fewer overlapping trains. Not a CP-SAT result."
+          className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-slate-500"
+        >
+          Pre-optimization
         </span>
       </div>
 
@@ -21,7 +25,7 @@ export function RecommendationCard({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500">
-              Block ID
+              Window ID
             </div>
             <div className="mt-1 text-[26px] font-semibold leading-none text-blue-700">
               {recommendation.blockId}
@@ -29,13 +33,13 @@ export function RecommendationCard({
           </div>
           <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
             <InfoIcon />
-            <span>{recommendation.compatibleTasks} Compatible Tasks</span>
+            <span>{recommendation.compatibleTasks} Candidate Tasks</span>
           </div>
         </div>
 
         <div className="space-y-2 text-[12px] text-slate-600">
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-            <span className="text-slate-500">Corridor</span>
+            <span className="text-slate-500">Section</span>
             <span className="font-semibold text-slate-800">
               {recommendation.corridor}
             </span>
@@ -47,7 +51,7 @@ export function RecommendationCard({
             </span>
           </div>
           <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-            <span className="text-slate-500">Estimated Duration</span>
+            <span className="text-slate-500">Window Duration</span>
             <span className="font-semibold text-slate-800">
               {recommendation.durationHours}
             </span>
@@ -57,11 +61,11 @@ export function RecommendationCard({
         <div className="grid grid-cols-3 gap-1.5 text-[9px] text-slate-600">
           <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1.5">
             <span className="h-2 w-2 rounded-full bg-blue-500" />
-            <span>Train Impact</span>
+            <span>{recommendation.trainImpact} train impact</span>
           </div>
           <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1.5">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span>Priority</span>
+            <span>{recommendation.priorityCoverage} priority</span>
           </div>
           <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1.5">
             <span className="h-2 w-2 rounded-full bg-slate-500" />
@@ -69,12 +73,12 @@ export function RecommendationCard({
           </div>
         </div>
 
-        <button
-          type="button"
-          className="mt-1 w-full rounded-lg bg-blue-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
+        <Link
+          to="/planner"
+          className="mt-1 block w-full rounded-lg bg-blue-700 px-3 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
         >
-          View Plan
-        </button>
+          Open Block Planner
+        </Link>
       </div>
     </div>
   );

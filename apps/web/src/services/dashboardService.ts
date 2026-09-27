@@ -7,10 +7,10 @@ function isDashboardData(value: unknown): value is DashboardData {
 
   const dashboard = value as Partial<DashboardData>;
   return (
+    typeof dashboard.planningDate === "string" &&
     Array.isArray(dashboard.assetSummary) &&
     Array.isArray(dashboard.maintenanceTasks) &&
     typeof dashboard.recommendedBlock === "object" &&
-    dashboard.recommendedBlock !== null &&
     Array.isArray(dashboard.corridorStatus) &&
     Array.isArray(dashboard.trainImpact) &&
     Array.isArray(dashboard.alerts)
@@ -32,14 +32,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       throw new Error("Dashboard API returned an invalid response");
     }
 
-    return {
-      assetSummary: payload.assetSummary.map((item) => ({ ...item })),
-      maintenanceTasks: payload.maintenanceTasks.map((task) => ({ ...task })),
-      recommendedBlock: { ...payload.recommendedBlock },
-      corridorStatus: payload.corridorStatus.map((status) => ({ ...status })),
-      trainImpact: payload.trainImpact.map((impact) => ({ ...impact })),
-      alerts: payload.alerts.map((alert) => ({ ...alert })),
-    };
+    return payload;
   } catch (error) {
     console.error("Unable to load dashboard data from the Node API:", error);
     throw new Error("Dashboard data is unavailable");

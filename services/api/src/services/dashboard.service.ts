@@ -1,111 +1,285 @@
 import { pool } from "../config/database.js";
 import { redisGet, redisSet } from "../integrations/redis.client.js";
 import { config } from "../config/env.js";
+import {
+  describeTask,
+  formatClock,
+  formatDateLabel,
+  formatDuration,
+  getActiveTasks,
+  getPlanningDate,
+  getSections,
+  getWindowsForDate,
+  pickTopCandidateWindow,
+  titleCase,
+  toPriorityCoverage,
+  toPriorityLevel,
+  type PriorityLevel,
+} from "./planning-context.js";
 
 const DASHBOARD_CACHE_KEY = "railopt:dashboard:v2";
+const TOP_TASKS = 5;
 
 type DashboardResponse = {
-  assetSummary: Array<{ label: string; value: string; supportText?: string; tone: "default" | "danger" | "warning" | "success" }>;
-  maintenanceTasks: Array<{ assetId: string; task: string; department: string; priority: "P1" | "P2" | "P3"; riskScore: number; overdueDays: number }>;
-  recommendedBlock: { blockId: string; corridor: string; timeWindow: string; durationHours: string; compatibleTasks: number; trainImpact: string; priorityCoverage: string } | null;
-  corridorStatus: Array<{ name: string; state: "Normal" | "Busy" | "Blocked" | "Selected" }>;
-  trainImpact: Array<{ name: "Low Impact" | "Medium Impact" | "High Impact"; value: number; color: string }>;
-  alerts: Array<{ severity: "CRITICAL" | "WARNING" | "INFO"; title: string; timestamp: string }>;
+  planningDate: string;
+  assetSummary: Array<{
+    label: string;
+    value: string;
+    supportText?: string;
+    tone: "default" | "danger" | "warning" | "success";
+  }>;
+  maintenanceTasks: Array<{
+    taskId: string;
+    assetId: string;
+    task: string;
+    department: string;
+    priority: PriorityLevel;
+    riskScore: number;
+    overdueDays: number;
+  }>;
+  recommendedBlock: {
+    blockId: string;
+    corridor: string;
+    timeWindow: string;
+    durationHours: string;
+    compatibleTasks: number;
+    trainImpact: string;
+    priorityCoverage: string;
+  } | null;
+  corridorStatus: Array<{
+    name: string;
+    state: "Normal" | "Busy" | "Blocked" | "Selected";
+  }>;
+  trainImpact: Array<{
+    name: "Low Impact" | "Medium Impact" | "High Impact";
+    value: number;
+    color: string;
+  }>;
+  alerts: Array<{
+    severity: "CRITICAL" | "WARNING" | "INFO";
+    title: string;
+    timestamp: string;
+  }>;
 };
 
-function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")} Hrs`;
+const impactColors = {
+  "Low Impact": "#22c55e",
+  "Medium Impact": "#f59e0b",
+  "High Impact": "#ef4444",
+} as const;
+
+async function getAssetCounts(): Promise<{ total: number; active: number }> {
+  const result = await pool.query<{ total: string; active: string }>(
+    `SELECT COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'ACTIVE') AS active
+     FROM railopt.assets`,
+  );
+  return {
+    total: Number(result.rows[0].total),
+    active: Number(result.rows[0].active),
+  };
+}
+
+async function getOutOfServiceSections(): Promise<Set<string>> {
+  const result = await pool.query<{ section_id: string }>(
+    `SELECT DISTINCT section_id FROM railopt.assets WHERE status = 'OUT_OF_SERVICE'`,
+  );
+  return new Set(result.rows.map((row) => row.section_id));
+}
+
+async function getCriticalDefectAlerts(): Promise<DashboardResponse["alerts"]> {
+  const result = await pool.query<{
+    defect_id: string;
+    asset_id: string;
+    section_id: string;
+    defect_type: string;
+    reported: string;
+  }>(
+    `SELECT defect_id, asset_id, section_id, defect_type,
+            to_char(reported_time, 'YYYY-MM-DD') AS reported
+     FROM railopt.defects
+     WHERE status = 'OPEN' AND severity = 'CRITICAL'
+     ORDER BY reported_time DESC, defect_id
+     LIMIT 2`,
+  );
+  return result.rows.map((row) => ({
+    severity: "CRITICAL" as const,
+    title: `Open critical ${titleCase(row.defect_type).toLowerCase()} defect on ${row.asset_id} (${row.section_id})`,
+    timestamp: `Reported ${formatDateLabel(row.reported)}`,
+  }));
 }
 
 async function getDashboardDataFromPostgres(): Promise<DashboardResponse> {
-  const [assets, tasks, blocks, windows, trains, sections] = await Promise.all([
-    pool.query(`SELECT asset_id, section_id, status, condition_score FROM railopt.assets`),
-    pool.query(`
-      SELECT t.asset_id, t.description, t.department,
-             COALESCE(pp.final_priority_score, t.priority_score, 0) AS risk_score,
-             GREATEST(CURRENT_DATE - COALESCE(t.due_date, CURRENT_DATE), 0) AS overdue_days
-      FROM railopt.maintenance_tasks t
-      LEFT JOIN LATERAL (
-        SELECT final_priority_score FROM railopt.priority_predictions
-        WHERE task_id = t.task_id ORDER BY created_at DESC LIMIT 1
-      ) pp ON TRUE
-      ORDER BY COALESCE(pp.final_priority_score, t.priority_score, 0) DESC, t.due_date ASC NULLS LAST
-      LIMIT 20
-    `),
-    pool.query(`SELECT block_id, block_name, status FROM railopt.blocks ORDER BY block_id`),
-    pool.query(`SELECT window_id, block_id, section_id, start_time, end_time, duration_min, available FROM railopt.block_windows ORDER BY start_time`),
-    pool.query(`SELECT section_id, is_freight FROM railopt.train_movements`),
-    pool.query(`SELECT section_id, section_code, operational_status FROM railopt.sections ORDER BY section_code NULLS LAST, section_id`),
-  ]);
+  const planningDate = await getPlanningDate();
+  const tasks = await getActiveTasks(planningDate);
+  const [assets, windows, sections, outOfService, defectAlerts] =
+    await Promise.all([
+      getAssetCounts(),
+      getWindowsForDate(planningDate, tasks),
+      getSections(),
+      getOutOfServiceSections(),
+      getCriticalDefectAlerts(),
+    ]);
 
-  const totalAssets = assets.rowCount ?? 0;
-  const availableAssets = assets.rows.filter((a) => String(a.status).toLowerCase() === "active").length;
-  const highRiskAssets = assets.rows.filter((a) => Number(a.condition_score) < 40).length;
-  const activeBlocks = blocks.rows.filter((b) => ["Active", "Planned", "AVAILABLE"].includes(String(b.status))).length;
-  const totalWindows = windows.rowCount ?? 0;
-  const availableWindows = windows.rows.filter((w) => w.available === true).length;
+  const highPriorityTasks = tasks.filter(
+    (task) => toPriorityLevel(task.priorityScore) !== "P3",
+  ).length;
+  const overdueTasks = tasks.filter((task) => task.overdueDays > 0).length;
+  const availableWindows = windows.filter((window) => window.available);
+  const trainOverlaps = availableWindows.reduce(
+    (sum, window) => sum + window.overlappingTrains,
+    0,
+  );
+  const highestImpact = availableWindows.some((window) => window.impact === "High")
+    ? "HIGH"
+    : availableWindows.some((window) => window.impact === "Medium")
+      ? "MEDIUM"
+      : "LOW";
 
-  const lowCount = windows.rows.filter((w) => w.available === true && Number(w.duration_min) <= 60).length;
-  const mediumCount = windows.rows.filter((w) => w.available === true && Number(w.duration_min) > 60 && Number(w.duration_min) <= 180).length;
-  const highCount = Math.max(0, availableWindows - lowCount - mediumCount);
-  const trainTotal = trains.rowCount ?? 0;
+  const topWindow = pickTopCandidateWindow(windows);
+  const sectionLabels = new Map(
+    sections.map((section) => [section.sectionId, section.label]),
+  );
 
-  const recommended = windows.rows.find((w) => w.available === true) ?? windows.rows[0];
-  let recommendedBlock: DashboardResponse["recommendedBlock"] = null;
-  if (recommended) {
-    const block = blocks.rows.find((b) => b.block_id === recommended.block_id);
-    const section = sections.rows.find((s) => s.section_id === recommended.section_id);
-    recommendedBlock = {
-      blockId: recommended.block_id,
-      corridor: section?.section_code ?? recommended.section_id,
-      timeWindow: `${new Date(recommended.start_time).toISOString().slice(11, 16)} – ${new Date(recommended.end_time).toISOString().slice(11, 16)}`,
-      durationHours: formatDuration(Number(recommended.duration_min)),
-      compatibleTasks: tasks.rows.length,
-      trainImpact: trainTotal ? "See conflict analysis" : "LOW",
-      priorityCoverage: tasks.rows.length ? "Available" : "None",
+  // Main line: sections chained end to end from the first section's origin.
+  // Branch sections share an origin station; keep the first (main-line) one.
+  const bySource = new Map<string, (typeof sections)[number]>();
+  for (const section of sections) {
+    if (!bySource.has(section.fromStation)) bySource.set(section.fromStation, section);
+  }
+  const corridor: typeof sections = [];
+  let cursor = sections[0];
+  while (cursor && !corridor.includes(cursor)) {
+    corridor.push(cursor);
+    cursor = bySource.get(cursor.toStation) as (typeof sections)[number];
+  }
+  const busySections = new Set(
+    windows.filter((window) => window.impact === "High").map((window) => window.sectionId),
+  );
+  const stationState = (sectionIds: string[]) => {
+    if (topWindow && sectionIds.includes(topWindow.sectionId)) return "Selected" as const;
+    if (sectionIds.some((id) => outOfService.has(id))) return "Blocked" as const;
+    if (sectionIds.some((id) => busySections.has(id))) return "Busy" as const;
+    return "Normal" as const;
+  };
+  const corridorStatus: DashboardResponse["corridorStatus"] = corridor.length
+    ? [
+        ...corridor.map((section, index) => ({
+          name: section.fromStation,
+          state: stationState(
+            [corridor[index - 1]?.sectionId, section.sectionId].filter(Boolean) as string[],
+          ),
+        })),
+        {
+          name: corridor[corridor.length - 1].toStation,
+          state: stationState([corridor[corridor.length - 1].sectionId]),
+        },
+      ]
+    : [];
+
+  const impactLabels = ["Low Impact", "Medium Impact", "High Impact"] as const;
+  const trainImpact = impactLabels.map((label) => {
+    const level = label.replace(" Impact", "");
+    const count = availableWindows.filter((window) => window.impact === level).length;
+    return {
+      name: label,
+      value: availableWindows.length
+        ? Math.round((count / availableWindows.length) * 100)
+        : 0,
+      color: impactColors[label],
     };
-    if (block) recommendedBlock.blockId = block.block_id;
+  });
+
+  const alerts: DashboardResponse["alerts"] = [...defectAlerts];
+  if (overdueTasks) {
+    alerts.push({
+      severity: "WARNING",
+      title: `${overdueTasks} active maintenance task(s) overdue`,
+      timestamp: `As of ${formatDateLabel(planningDate)}`,
+    });
+  }
+  const unavailableWindows = windows.length - availableWindows.length;
+  if (unavailableWindows) {
+    alerts.push({
+      severity: "INFO",
+      title: `${unavailableWindows} block window(s) unavailable on the planning date`,
+      timestamp: formatDateLabel(planningDate),
+    });
   }
 
   return {
+    planningDate,
     assetSummary: [
-      { label: "Total Assets", value: String(totalAssets), tone: "default" },
-      { label: "High Risk Assets", value: String(highRiskAssets), tone: "danger" },
-      { label: "Active Blocks", value: String(activeBlocks), tone: "warning" },
-      { label: "Asset Availability", value: totalAssets ? `${Math.round((availableAssets / totalAssets) * 100)}%` : "100%", tone: "success" },
-      { label: "Available Windows", value: String(availableWindows), supportText: `of ${totalWindows}`, tone: "default" },
+      { label: "Total Assets", value: String(assets.total), tone: "default" },
+      {
+        label: "High Priority Tasks",
+        value: String(highPriorityTasks),
+        supportText: `of ${tasks.length} active`,
+        tone: "danger",
+      },
+      {
+        label: "Available Windows",
+        value: String(availableWindows.length),
+        supportText: formatDateLabel(planningDate),
+        tone: "warning",
+      },
+      {
+        label: "Asset Availability",
+        value: assets.total
+          ? `${Math.round((assets.active / assets.total) * 100)}%`
+          : "0%",
+        supportText: `${assets.active} ACTIVE`,
+        tone: "success",
+      },
+      {
+        label: "Train Impact",
+        value: highestImpact,
+        supportText: `${trainOverlaps} overlaps`,
+        tone: "default",
+      },
     ],
-    maintenanceTasks: tasks.rows.map((task) => ({
-      assetId: task.asset_id,
-      task: task.description ?? task.asset_id,
-      department: task.department ?? "Unknown",
-      priority: Number(task.risk_score) >= 80 ? "P1" : Number(task.risk_score) >= 60 ? "P2" : "P3",
-      riskScore: Number(task.risk_score),
-      overdueDays: Number(task.overdue_days),
+    maintenanceTasks: tasks.slice(0, TOP_TASKS).map((task) => ({
+      taskId: task.taskId,
+      assetId: task.assetId,
+      task: describeTask(task),
+      department: task.department,
+      priority: toPriorityLevel(task.priorityScore),
+      riskScore: task.priorityScore,
+      overdueDays: task.overdueDays,
     })),
-    recommendedBlock,
-    corridorStatus: sections.rows.map((section, index) => ({
-      name: section.section_code ?? section.section_id,
-      state: index === 0 ? "Selected" : section.operational_status === "BLOCKED" ? "Blocked" : "Normal",
-    })),
-    trainImpact: [
-      { name: "Low Impact", value: trainTotal ? Math.round((lowCount / Math.max(totalWindows, 1)) * 100) : 0, color: "#22c55e" },
-      { name: "Medium Impact", value: trainTotal ? Math.round((mediumCount / Math.max(totalWindows, 1)) * 100) : 0, color: "#f59e0b" },
-      { name: "High Impact", value: trainTotal ? Math.round((highCount / Math.max(totalWindows, 1)) * 100) : 0, color: "#ef4444" },
-    ],
-    alerts: [],
+    recommendedBlock: topWindow
+      ? {
+          blockId: topWindow.windowId,
+          corridor: `${sectionLabels.get(topWindow.sectionId) ?? topWindow.sectionId} (${topWindow.sectionId})`,
+          timeWindow: `${formatClock(topWindow.start)} – ${formatClock(topWindow.end)}`,
+          durationHours: formatDuration(topWindow.durationMin),
+          compatibleTasks: topWindow.candidateTaskIds.length,
+          trainImpact: topWindow.impact,
+          priorityCoverage: toPriorityCoverage(topWindow.topCandidateScore),
+        }
+      : null,
+    corridorStatus,
+    trainImpact,
+    alerts,
   };
 }
 
 export async function getDashboardData(): Promise<DashboardResponse> {
-  const cached = await redisGet(DASHBOARD_CACHE_KEY);
-  if (cached) {
-    try { return JSON.parse(cached) as DashboardResponse; } catch { /* refresh */ }
+  const cachedDashboard = await redisGet(DASHBOARD_CACHE_KEY);
+  if (cachedDashboard) {
+    try {
+      return JSON.parse(cachedDashboard) as DashboardResponse;
+    } catch {
+      // Ignore malformed cache data and refresh it from PostgreSQL.
+    }
   }
+
   const dashboard = await getDashboardDataFromPostgres();
-  await redisSet(DASHBOARD_CACHE_KEY, JSON.stringify(dashboard), config.dashboardCacheTtlSeconds);
+  await redisSet(
+    DASHBOARD_CACHE_KEY,
+    JSON.stringify(dashboard),
+    config.dashboardCacheTtlSeconds,
+  );
   return dashboard;
 }
 

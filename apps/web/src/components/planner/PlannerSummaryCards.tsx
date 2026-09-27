@@ -1,4 +1,4 @@
-import type { PlanningSummary } from "../../services/mock/blockPlannerData";
+import type { PlanningSummary } from "../../types/planner";
 
 const toneStyles = {
   default: {
@@ -45,13 +45,13 @@ export function PlannerSummaryCards({
               <span
                 className={`flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-semibold ${style.icon}`}
               >
-                {item.label === "Train Impact"
+                {item.label === "Train Overlaps"
                   ? "↗"
-                  : item.label === "Blocks Planned"
+                  : item.label === "Block Windows"
                     ? "▣"
-                    : item.label === "Tasks Scheduled"
+                    : item.label === "Candidate Tasks"
                       ? "✓"
-                      : item.label === "Corridor"
+                      : item.label === "Sections"
                         ? "◌"
                         : "◍"}
               </span>

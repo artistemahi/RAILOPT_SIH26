@@ -14,6 +14,7 @@ export interface AssetSummary {
 }
 
 export interface MaintenanceTask {
+  taskId: string;
   assetId: string;
   task: string;
   department: string;
@@ -50,9 +51,10 @@ export interface AlertItem {
 }
 
 export interface DashboardData {
+  planningDate: string;
   assetSummary: AssetSummary[];
   maintenanceTasks: MaintenanceTask[];
-  recommendedBlock: RecommendedBlock;
+  recommendedBlock: RecommendedBlock | null;
   corridorStatus: CorridorStatus[];
   trainImpact: TrainImpact[];
   alerts: AlertItem[];

@@ -19,12 +19,6 @@ export function AlertList({ alerts }: { alerts: AlertItem[] }) {
         <h2 className="text-[14px] font-semibold text-slate-800">
           Recent Alerts
         </h2>
-        <button
-          type="button"
-          className="text-[11px] font-medium text-blue-700 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-        >
-          View All
-        </button>
       </div>
 
       <div className="space-y-2.5">
@@ -51,13 +45,6 @@ export function AlertList({ alerts }: { alerts: AlertItem[] }) {
                 {alert.timestamp}
               </div>
             </div>
-            <button
-              type="button"
-              aria-label={`View alert ${alert.title}`}
-              className="pt-0.5 text-lg leading-none text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-            >
-              ›
-            </button>
           </div>
         ))}
       </div>

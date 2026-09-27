@@ -28,7 +28,9 @@ From the repository root, run one command in PowerShell:
 npm run demo
 ```
 
-The launcher reuses services whose ports are already occupied, starts missing required services in separate PowerShell windows, and checks their health:
+Prerequisites: Node.js 20+, Python 3.10+ (`py` or `python` on PATH), and PostgreSQL.
+
+On first run the launcher installs npm dependencies, creates each Python service's `.venv` and installs its `requirements.txt` (reinstalling only when that file changes), and creates `services/api/.env` and `apps/web/.env` from their `.env.example` files — set `DATABASE_URL` in `services/api/.env` for your PostgreSQL. It then reuses services whose ports are already occupied, starts missing required services in separate PowerShell windows titled `RAILOPT - <service>`, and waits for their health checks:
 
 | Required service    | Port | Health check  |
 | ------------------- | ---: | ------------- |
@@ -38,6 +40,18 @@ The launcher reuses services whose ports are already occupied, starts missing re
 | FastAPI optimizer   | 8002 | `GET /health` |
 
 PostgreSQL must already be installed and running locally. Redis on port 6379 and MinIO on port 9000 are optional; the launcher reports them without blocking the core demo.
+
+### Database setup (once)
+
+Create a PostgreSQL database, load the schema and import the synthetic dataset from `data/railopt_raw/`:
+
+```powershell
+psql -U postgres -c "CREATE DATABASE railopt"
+psql -U postgres -d railopt -f services/api/src/database/schema.sql
+npm run import --prefix services/api
+```
+
+Set `DATABASE_URL` in `services/api/.env` to that database. The Dashboard, Risk & Priority and Block Planner APIs read the `railopt.*` tables. Their planning date defaults to the first day that has block windows; override it with `PLANNING_DATE=YYYY-MM-DD` in `services/api/.env`. To use ML priority scores instead of the dataset's `priority_score`, call `POST /api/priority/predict` once with the ML service running.
 
 Open `http://localhost:5173/dashboard` after the launcher reports `Demo: ready`. The demo journey is Dashboard → Risk & Priority → Block Planner → Optimize Schedule.
 

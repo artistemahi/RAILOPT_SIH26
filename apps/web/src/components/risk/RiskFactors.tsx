@@ -7,13 +7,13 @@ export function RiskFactors({ factors }: { factors: RiskFactor[] }) {
         <div key={factor.label} className="space-y-1">
           <div className="flex items-center justify-between text-[11px] text-slate-600">
             <span>{factor.label}</span>
-            <span className="font-medium text-slate-700">{factor.value}%</span>
+            <span className="font-medium text-slate-700">{factor.display}</span>
           </div>
           <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
             <div
               className="h-full rounded-full"
               style={{
-                width: `${factor.value}%`,
+                width: `${Math.min(100, Math.max(0, factor.value))}%`,
                 backgroundColor: factor.color,
               }}
             />
