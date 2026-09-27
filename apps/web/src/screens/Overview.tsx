@@ -25,7 +25,7 @@ export default function Overview() {
   const navigate = useNavigate();
   const { data: dashboard, error } = useApi(getDashboardData);
   const { data: backlog } = useApi(getBacklog);
-  const { plan } = usePlan();
+  const { plan, version } = usePlan();
 
   if (error) return <ErrorNote message="Dashboard data is unavailable. Check the API connection." />;
   if (!dashboard) return <Loading what="command center" />;
@@ -86,7 +86,7 @@ export default function Overview() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <SectionPanel
-            title="Latest plan"
+            title={version ? `Plan in view · V${version.version} ${version.status}` : "Plan in view"}
             level={3}
             accent={plan ? (plan.validation.passed ? "success" : "critical") : "info"}
           >
@@ -104,14 +104,14 @@ export default function Overview() {
                   <button type="button" className="btn-rail btn-rail-secondary" onClick={() => navigate("/schedule")}>
                     Schedule
                   </button>
-                  <button type="button" className="btn-rail btn-rail-ghost" onClick={() => navigate("/optimizer")}>
-                    Solver details
+                  <button type="button" className="btn-rail btn-rail-ghost" onClick={() => navigate("/versions")}>
+                    Versions &amp; approval
                   </button>
                 </div>
               </>
             ) : (
               <p className="muted-note">
-                No plan in this session yet. Generate one to see the CP-SAT schedule, validation and KPIs.
+                No plan version yet. Generate one to see the CP-SAT schedule, validation and KPIs.
               </p>
             )}
           </SectionPanel>

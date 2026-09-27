@@ -11,12 +11,12 @@ const steps = [
   ["Compatibility graph", "Shared resource, same asset, dependency, repair → test order, coordination"],
   ["CP-SAT", "Maximise priority-weighted tasks; higher priority earlier"],
   ["Independent validation", "Every hard rule re-checked outside the solver"],
-  ["Planner review", "Recommendation only — a human approves"],
+  ["Planner review", "Stored as a DRAFT version — a planner approves, modifies or rejects"],
 ] as const;
 
 export default function PlanningRun() {
   const navigate = useNavigate();
-  const { plan, planning, error, generatedAt } = usePlan();
+  const { plan, version, planning, error, generatedAt } = usePlan();
   const { data: backlog } = useApi(getBacklog);
   const { data: windows } = useApi(getBlockWindows);
   const { data: settings } = useApi(getSettings);
@@ -84,7 +84,8 @@ export default function PlanningRun() {
             <>
               <KeyValueGrid
                 rows={[
-                  ["Generated", generatedAt?.toLocaleTimeString("en-GB") ?? "–"],
+                  ["Version", version ? `V${version.version} · ${version.status}` : "–"],
+                  ["Created", generatedAt?.toLocaleString("en-GB") ?? "–"],
                   ["Priority source", plan.priority.source === "ML" ? `ML · ${plan.priority.model_version}` : "Dataset score"],
                   ["Solver", <StatusBadge status={plan.solver.status} label={`${plan.solver.status} · ${plan.solver.wall_time_seconds}s`} />],
                   ["Validation", <StatusBadge status={plan.validation.passed ? "PASS" : "FAIL"} label={`${plan.validation.passed ? "PASS" : "FAIL"} · ${plan.validation.checks.length} checks`} />],
@@ -96,7 +97,10 @@ export default function PlanningRun() {
                 <p style={{ marginTop: 8, color: "var(--state-warning)", fontSize: 12 }}>{plan.priority.note}</p>
               )}
               <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                <button type="button" className="btn-rail btn-rail-primary" onClick={() => navigate("/schedule")}>
+                <button type="button" className="btn-rail btn-rail-primary" onClick={() => navigate("/versions")}>
+                  Review &amp; approve
+                </button>
+                <button type="button" className="btn-rail btn-rail-secondary" onClick={() => navigate("/schedule")}>
                   Open schedule
                 </button>
                 <button type="button" className="btn-rail btn-rail-secondary" onClick={() => navigate("/optimizer")}>

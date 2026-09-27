@@ -20,6 +20,7 @@ const groups: Array<{ heading: string; items: NavItemDef[] }> = [
       { to: "/optimizer", icon: "optimizer", label: "Optimization" },
       { to: "/schedule", icon: "schedule", label: "Schedule" },
       { to: "/validation", icon: "validation", label: "Validation" },
+      { to: "/versions", icon: "versions", label: "Versions & Approval" },
       { to: "/what-if", icon: "whatif", label: "What-if" },
       { to: "/replanning", icon: "replanning", label: "Replanning" },
     ],
@@ -43,16 +44,18 @@ const groups: Array<{ heading: string; items: NavItemDef[] }> = [
 ];
 
 export function Sidebar() {
-  const { plan } = usePlan();
+  const { plan, version } = usePlan();
 
-  // Badges only show real state: the latest plan's validation result.
+  // Badges only show real state: the plan in view and its validation.
   const badges: Record<string, { text: string; tone: string } | undefined> = {
     "/validation": plan
       ? plan.validation.passed
         ? { text: "PASS", tone: "success" }
         : { text: "FAIL", tone: "danger" }
       : undefined,
-    "/replanning": { text: "SOON", tone: "neutral" },
+    "/versions": version
+      ? { text: `V${version.version}`, tone: version.status === "APPROVED" ? "success" : version.status === "DRAFT" ? "warning" : "neutral" }
+      : undefined,
   };
 
   return (

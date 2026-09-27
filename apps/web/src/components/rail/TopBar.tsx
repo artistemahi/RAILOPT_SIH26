@@ -5,7 +5,7 @@ import { StatusBadge } from "./StatusBadge";
 
 export function TopBar({ pageName }: { pageName: string }) {
   const { data: settings } = useApi(getSettings);
-  const { plan, generatedAt, planning } = usePlan();
+  const { plan, version, planning } = usePlan();
 
   return (
     <header className="rail-topbar">
@@ -33,14 +33,14 @@ export function TopBar({ pageName }: { pageName: string }) {
           </div>
           <span className="v-divider" />
           <div className="meta-cell">
-            <span className="meta-label">LATEST PLAN</span>
+            <span className="meta-label">PLAN IN VIEW</span>
             <span className="meta-val">
               {planning ? (
                 <StatusBadge status="PENDING" label="Solving…" />
-              ) : plan ? (
+              ) : plan && version ? (
                 <StatusBadge
-                  status={plan.validation.passed ? plan.solver.status : "FAIL"}
-                  label={`${plan.solver.status} · ${generatedAt?.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`}
+                  status={plan.validation.passed ? version.status : "FAIL"}
+                  label={`V${version.version} · ${version.status} · ${plan.solver.status}`}
                 />
               ) : (
                 <span style={{ color: "var(--text-muted)" }}>Not generated</span>

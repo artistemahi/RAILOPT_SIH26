@@ -120,3 +120,30 @@ All read the `railopt.*` tables; nothing is hardcoded.
 Known data finding: `task_resources.csv` has 1509 rows but 1507 reach PostgreSQL, because two (task_id, resource_id) pairs are duplicated and the UNIQUE constraint drops the repeats. Data Quality reports this as a WARN.
 
 TMS, SMMS, TDMS and COA are shown on the Data Sources screen only as target architecture. RAILOPT does not connect to any of them.
+
+## Plan versions, approval and emergency replanning (`/api/plans`)
+
+Every plan RAILOPT produces is stored as a version in `railopt.planning_runs`; every action is logged in `railopt.plan_events`. The API creates both tables on first use (`services/api/src/database/plan-versions.sql`), so an existing database needs no manual migration. RAILOPT only recommends: a version becomes the plan in force only when a planner approves it. There is no login in this prototype; the planner types a name, which is recorded in the audit log.
+
+| Endpoint | Does |
+| --- | --- |
+| `GET /api/plans` | versions, newest first (summary + KPIs) |
+| `POST /api/plans` `{actor}` | ML priority → CP-SAT → validation, stored as a new DRAFT (trigger PLAN) |
+| `GET /api/plans/:runId` | one version with its full plan |
+| `GET /api/plans/events`, `GET /api/plans/:runId/events` | audit log |
+| `POST /api/plans/:runId/approve` `{actor, reason?}` | DRAFT → APPROVED; only if independent validation passed; the previously APPROVED version becomes SUPERSEDED |
+| `POST /api/plans/:runId/reject` `{actor, reason}` | DRAFT → REJECTED (reason required) |
+| `POST /api/plans/:runId/modify` `{actor, reason, changes?, pins?}` | planner edits of a DRAFT or APPROVED version → new DRAFT (trigger MODIFY) |
+| `POST /api/plans/:runId/replan` `{actor, reason, disruptionTime, changes}` | emergency replanning of the APPROVED version → new DRAFT (trigger REPLAN) |
+
+Changes use the what-if change types. `pins` maps task → window the planner requires (must be one of the task's feasible candidate windows, otherwise reported in `unmet_pins`).
+
+Replanning (optimizer `POST /replan`, deterministic CP-SAT):
+
+- Work in the parent plan that started before `disruptionTime` is **frozen**: kept exactly, not re-checked against the disruption, but it still occupies its asset and resources and satisfies dependencies.
+- No other work may start before `disruptionTime`.
+- All other tasks are re-optimised, preferring their window in the parent plan (same lexicographic objective as what-if).
+- The result is independently validated (frozen work is exempt from input re-checks only) and returned with a diff against the parent: frozen, unchanged, moved, added and dropped (with reason).
+- Disruptions, pins and the freeze time are inherited down the version chain: a modification of a replanned version keeps its disruptions and its frozen past, and a new disruption cannot be earlier than the parent's freeze time.
+
+Tests: `services/optimizer/tests/test_replan.py`.

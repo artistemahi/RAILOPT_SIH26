@@ -16,6 +16,7 @@ import Schedule from "./screens/Schedule";
 import Settings from "./screens/Settings";
 import Tasks from "./screens/Tasks";
 import Validation from "./screens/Validation";
+import Versions from "./screens/Versions";
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/schedule" element={<Schedule />} />
         <Route path="/validation" element={<Validation />} />
         <Route path="/what-if" element={<WhatIfPage />} />
+        <Route path="/versions" element={<Versions />} />
         <Route path="/replanning" element={<Replanning />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/risk" element={<RiskManagementPage />} />

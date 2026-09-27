@@ -53,7 +53,11 @@ def validate(
     problem: PlanningProblem,
     assignments: list[Assignment],
     section_exclusive: bool = False,
+    committed: frozenset[str] = frozenset(),
 ) -> ValidationReport:
+    """committed: work frozen by replanning (already started). It is not
+    re-checked against the changed inputs, but still counts for asset,
+    resource and dependency checks of the other tasks."""
     violations: list[Violation] = []
     by_task: dict[str, Assignment] = {}
 
@@ -66,6 +70,8 @@ def validate(
         if item.task_id in by_task:
             violations.append(Violation("TASK_ONCE", item.task_id, "Task placed more than once"))
         by_task[item.task_id] = item
+        if item.task_id in committed:
+            continue
 
         task = problem.tasks.get(item.task_id)
         window = problem.windows.get(item.window_id)
@@ -178,7 +184,11 @@ def validate(
     # Mandatory dependencies between planned tasks.
     for dependency in problem.dependencies:
         successor = by_task.get(dependency.successor)
-        if successor is None or dependency.predecessor not in problem.tasks:
+        if (
+            successor is None
+            or successor.task_id in committed
+            or dependency.predecessor not in problem.tasks
+        ):
             continue
         predecessor = by_task.get(dependency.predecessor)
         if predecessor is None:

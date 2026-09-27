@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from railopt_optimizer.block_planning.service import plan_blocks
+from railopt_optimizer.block_planning.replan import replan
 from railopt_optimizer.block_planning.what_if import run_what_if
 
 router = APIRouter(tags=["block-planning"])
@@ -136,3 +137,39 @@ def what_if_route(request: WhatIfRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=f"Invalid scenario: {error}") from error
     except Exception as error:
         raise HTTPException(status_code=500, detail="What-if simulation failed") from error
+
+
+class PreviousAssignment(BaseModel):
+    task_id: str
+    window_id: str
+    section_id: str
+    start: str
+    end: str
+    start_minute: int
+    end_minute: int
+    priority_score: float = 0
+
+
+class ReplanRequest(BaseModel):
+    planning: PlanBlocksRequest
+    previous: list[PreviousAssignment]
+    changes: list[WhatIfChange] = Field(default_factory=list, max_length=20)
+    freeze_before: str | None = Field(default=None, description="Disruption time, YYYY-MM-DD HH:MM:SS")
+    pins: dict[str, str] = Field(default_factory=dict, description="task_id -> window_id")
+
+
+@router.post("/replan")
+def replan_route(request: ReplanRequest) -> dict[str, Any]:
+    changes = [change.model_dump(exclude_none=True) for change in request.changes]
+    try:
+        return replan(
+            request.planning.model_dump(),
+            [item.model_dump() for item in request.previous],
+            changes,
+            freeze_before=request.freeze_before,
+            pins=request.pins,
+        )
+    except (ValueError, KeyError) as error:
+        raise HTTPException(status_code=422, detail=f"Invalid replanning request: {error}") from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="Replanning failed") from error

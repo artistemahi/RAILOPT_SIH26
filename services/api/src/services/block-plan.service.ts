@@ -28,33 +28,40 @@ async function scorePriorities(): Promise<PrioritySource> {
     };
   } catch (error) {
     console.error("ML priority scoring failed; using stored priorities:", error);
-    // Planning then reads the latest stored ML scores, if any exist.
-    const previous = await pool.query<{
-      run_id: string;
-      model_version: string;
-      created: string;
-    }>(
-      `SELECT run_id, model_version,
-              to_char(created_at, 'YYYY-MM-DD HH24:MI') AS created
-       FROM railopt.priority_predictions
-       ORDER BY created_at DESC
-       LIMIT 1`,
-    );
-    const run = previous.rows[0];
-    return run
-      ? {
-          source: "ML",
-          run_id: run.run_id,
-          model_version: run.model_version,
-          note: `ML service unavailable; using the previous ML run from ${run.created}`,
-        }
-      : {
-          source: "DATASET",
-          run_id: null,
-          model_version: null,
-          note: "ML service unavailable and no ML run stored; dataset priority_score used",
-        };
+    return storedPriority("ML service unavailable; using the previous ML run from");
   }
+}
+
+/**
+ * The priorities planning reads without a new ML run: the latest stored ML
+ * run (planner overrides still win), or the dataset score if none exists.
+ */
+export async function storedPriority(notePrefix: string): Promise<PrioritySource> {
+  const previous = await pool.query<{
+    run_id: string;
+    model_version: string;
+    created: string;
+  }>(
+    `SELECT run_id, model_version,
+            to_char(created_at, 'YYYY-MM-DD HH24:MI') AS created
+     FROM railopt.priority_predictions
+     ORDER BY created_at DESC
+     LIMIT 1`,
+  );
+  const run = previous.rows[0];
+  return run
+    ? {
+        source: "ML",
+        run_id: run.run_id,
+        model_version: run.model_version,
+        note: `${notePrefix} ${run.created}`,
+      }
+    : {
+        source: "DATASET",
+        run_id: null,
+        model_version: null,
+        note: `${notePrefix.split(";")[0]}; no ML run stored, dataset priority_score used`,
+      };
 }
 
 const DEFAULT_HORIZON_DAYS = 7;
@@ -254,5 +261,48 @@ export async function getWhatIfOptions(): Promise<unknown> {
       priority_score: task.priority_score,
     })),
     sections: rows("sections").map((section) => section.section_id),
+  };
+}
+
+export type PreviousAssignment = {
+  task_id: string;
+  window_id: string;
+  section_id: string;
+  start: string;
+  end: string;
+  start_minute: number;
+  end_minute: number;
+  priority_score: number;
+};
+
+/**
+ * Re-optimise a stored plan against the current inputs: apply the changes
+ * (disruption or planner edits), freeze work started before freezeBefore,
+ * honour pins, and stay close to the previous plan elsewhere.
+ */
+export async function replanFrom(options: {
+  previous: PreviousAssignment[];
+  changes: WhatIfChange[];
+  freezeBefore: string | null;
+  pins: Record<string, string>;
+}): Promise<Record<string, unknown>> {
+  const payload = await buildPlanningPayload();
+  const result = await postJson<unknown, Record<string, unknown>>(
+    config.optimizerServiceUrl,
+    "/replan",
+    {
+      planning: { ...payload, include_details: true },
+      previous: options.previous,
+      changes: options.changes,
+      freeze_before: options.freezeBefore,
+      pins: options.pins,
+    },
+    (SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
+  );
+  return {
+    ...result,
+    planning_date: payload.horizon_start,
+    horizon_days: payload.horizon_days,
+    priority: await storedPriority("Stored priorities (no new ML run); latest ML run from"),
   };
 }

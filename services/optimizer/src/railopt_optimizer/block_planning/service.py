@@ -197,6 +197,7 @@ def run_pipeline(
     deterministic: bool = False,
     reference: dict[str, str] | None = None,
     allow_coordination: bool = True,
+    **solve_options: Any,
 ) -> PipelineRun:
     """Candidates -> compatibility -> CP-SAT -> independent validation."""
     problem = build_problem(payload)
@@ -210,8 +211,14 @@ def run_pipeline(
         allow_coordination=allow_coordination,
         deterministic=deterministic,
         reference=reference,
+        **solve_options,
     )
-    report = validate(problem, result.assignments, section_exclusive=not allow_coordination)
+    report = validate(
+        problem,
+        result.assignments,
+        section_exclusive=not allow_coordination,
+        committed=frozenset(solve_options.get("fixed") or {}),
+    )
     return PipelineRun(problem, candidates, compatibility, result, report)
 
 

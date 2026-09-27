@@ -12,6 +12,7 @@ const pageNames: Record<string, string> = {
   "/schedule": "Schedule",
   "/validation": "Validation",
   "/what-if": "What-if",
+  "/versions": "Plan Versions",
   "/replanning": "Replanning",
   "/analytics": "Analytics",
   "/risk": "Risk & Priority",
