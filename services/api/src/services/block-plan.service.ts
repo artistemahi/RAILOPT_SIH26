@@ -2,7 +2,7 @@ import { pool } from "../config/database.js";
 import { config } from "../config/env.js";
 import { postJson } from "../integrations/python-service.client.js";
 import type { BlockPlanResponse } from "../types/python-services.js";
-import { getActiveTasks, getPlanningDate } from "./planning-context.js";
+import { getActiveTasks, getPlanningDate, PRIORITY_BANDS } from "./planning-context.js";
 import { generatePriorityScores } from "./priority.service.js";
 
 export type PrioritySource = {
@@ -153,6 +153,7 @@ export async function buildPlanningPayload(): Promise<PlanningPayload> {
       horizon_start: planningDate,
       horizon_days: horizonDays,
       time_limit_seconds: SOLVER_TIME_LIMIT_SECONDS,
+      p1_threshold: PRIORITY_BANDS.P1,
       tasks: pendingTasks.map((task) => ({
         task_id: task.taskId,
         section_id: task.sectionId,
@@ -305,4 +306,23 @@ export async function replanFrom(options: {
     horizon_days: payload.horizon_days,
     priority: await storedPriority("Stored priorities (no new ML run); latest ML run from"),
   };
+}
+
+export const DEFAULT_MONTH_WEEKS = Number(process.env.MONTHLY_PLAN_WEEKS) || 5;
+
+/**
+ * Monthly rough-cut plan: ML priority first (as for the weekly plan), then
+ * CP-SAT assigns pending tasks to weeks. Week 1 uses the dataset's windows;
+ * later weeks repeat that pattern (projected, see the optimizer).
+ */
+export async function generateMonthlyPlan(weeks = DEFAULT_MONTH_WEEKS): Promise<Record<string, unknown>> {
+  const priority = await scorePriorities();
+  const payload = await buildPlanningPayload();
+  const result = await postJson<unknown, Record<string, unknown>>(
+    config.optimizerServiceUrl,
+    "/plan-month",
+    { planning: { ...payload, horizon_days: 7 }, weeks },
+    (SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
+  );
+  return { ...result, planning_date: payload.horizon_start, horizon_days: weeks * 7, priority };
 }

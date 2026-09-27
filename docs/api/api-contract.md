@@ -29,7 +29,7 @@
 Definitions used by the read APIs:
 
 - Active task: status `PENDING`, `SCHEDULED` or `IN_PROGRESS`.
-- Priority score: latest ML `final_priority_score` if present, else the dataset `priority_score`. P1 ≥ 80, P2 ≥ 65, else P3.
+- Priority score: latest ML `final_priority_score` if present, else the dataset `priority_score`. P1 ≥ 70, P2 ≥ 60, else P3 (`PRIORITY_BANDS` in `planning-context.ts`; sent to the optimizer as `p1_threshold`).
 - Candidate task for a window: its `block_requirements` row points at the window's block, the block type matches, and minimum duration + setup + release fits the window. This is pre-optimization; nothing is scheduled.
 - Train impact of a window: train movements on the same section overlapping it in time (Low < 3, Medium 3–6, High ≥ 7).
 - Overdue days: planning date − due date, for active tasks.
@@ -83,7 +83,7 @@ Objective (lexicographic): maximise Σ priority weight of placed tasks; then min
 
 Independent validator (no CP-SAT or compatibility code) re-checks: TASK_ONCE, WINDOW_VALID, WITHIN_WINDOW, DURATION, SECTION_COVERED, SECTION_STATUS, BLOCK_CAPACITY, NO_TRAIN_OVERLAP, NO_ASSET_OVERLAP, TASK_TYPE_ORDER, RESOURCE_MATCH, RESOURCE_CAPACITY, DEPENDENCY_ORDER (+ SECTION_EXCLUSIVE for the comparison model).
 
-KPIs: tasks scheduled, P1 (score ≥ 80) scheduled, priority-weighted completion, block utilisation = used task-minutes ÷ (available window minutes × sections covered), multi-department task pairs working in parallel.
+KPIs: tasks scheduled, P1 (score ≥ 70) scheduled, priority-weighted completion, block utilisation = used task-minutes ÷ (available window minutes × sections covered), multi-department task pairs working in parallel.
 
 Compatibility rules not modelled: RULE_017 start-to-start (no such dependencies in the dataset), RULE_022–024 train priority/density/status preferences, RULE_025/030 approval (outside optimizer authority; the plan is a recommendation), RULE_031 inspection-before-repair and RULE_035–040 priority preferences (the objective uses the priority score), RULE_042 hard due dates, RULE_047–048 network contiguity and direction.
 
@@ -147,3 +147,33 @@ Replanning (optimizer `POST /replan`, deterministic CP-SAT):
 - Disruptions, pins and the freeze time are inherited down the version chain: a modification of a replanned version keeps its disruptions and its frozen past, and a new disruption cannot be earlier than the parent's freeze time.
 
 Tests: `services/optimizer/tests/test_replan.py`.
+
+## Weekly and monthly plans (PS: multiple time horizons)
+
+| Plan | How | Detail |
+| --- | --- | --- |
+| Weekly (`POST /api/plans`) | ML priority → CP-SAT on the 7-day horizon | minute-level: window, start, end; independent validator (13 checks) |
+| Monthly (`POST /api/plans` `{type: "MONTHLY", weeks}`, default `MONTHLY_PLAN_WEEKS`=5) | ML priority → CP-SAT rough cut (optimizer `POST /plan-month`) | task → week and window of the weekly pattern; independent check (TASK_ONCE, WINDOW_FIT, WEEK_CAPACITY, DEPENDENCY_WEEK_ORDER) |
+
+Monthly model:
+
+- A task may only use a window where it is a feasible candidate: block type, duration incl. setup/release, a long enough train-free gap, resources, skills and section status.
+- Per week, window and section, the planned minutes may not exceed the train-free minutes of that window on that section.
+- A planned successor needs its pending predecessor in the same or an earlier week.
+- Objective (lexicographic): maximise priority-weighted planned tasks, then minimise priority-weighted weeks after the due week, then plan higher-priority work earlier.
+- Deterministic.
+
+**Assumption (shown in the UI):** only week 1 has block windows, train movements and resource availability in the dataset. Weeks 2 onward are projected by repeating that pattern. The rough cut does not model minute-level times, dependency gaps, same-asset order or parallel department work; the weekly plan resolves those exactly.
+
+`block_requests`: pending work that no window of the pattern can hold, grouped by section, with the block length needed vs the longest train-free gap. This is input for block requests.
+
+Versions carry `planType` (WEEKLY / MONTHLY). Approving supersedes only the previously approved plan of the same type. Modify and emergency replanning apply to weekly plans.
+
+Weekly plan output also includes `asset_downtime`:
+
+- planned maintenance minutes per asset;
+- outages (asset × window; several jobs on one asset in one window are one outage);
+- assets with bundled jobs;
+- availability of the worked assets over the horizon.
+
+`GET /api/block-windows` reports overlapping train movements and, of those, freight trains. In the dataset every movement is "SCHEDULED"; there is no separate goods-train forecast.

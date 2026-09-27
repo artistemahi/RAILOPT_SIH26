@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS railopt.planning_runs (
     version           INTEGER NOT NULL,
     parent_run_id     VARCHAR(40),
     trigger_type      VARCHAR(20) NOT NULL,   -- PLAN | MODIFY | REPLAN
+    plan_type         VARCHAR(10) NOT NULL DEFAULT 'WEEKLY',  -- WEEKLY | MONTHLY
     trigger_detail    JSONB,
     planning_date     DATE,
     horizon_days      INTEGER,
@@ -36,6 +37,10 @@ CREATE TABLE IF NOT EXISTS railopt.planning_runs (
 
 CREATE INDEX IF NOT EXISTS idx_planning_runs_created
     ON railopt.planning_runs(created_at DESC);
+
+-- Added with the monthly plan; keeps databases created before it working.
+ALTER TABLE railopt.planning_runs
+    ADD COLUMN IF NOT EXISTS plan_type VARCHAR(10) NOT NULL DEFAULT 'WEEKLY';
 
 CREATE TABLE IF NOT EXISTS railopt.plan_events (
     event_id    BIGSERIAL PRIMARY KEY,

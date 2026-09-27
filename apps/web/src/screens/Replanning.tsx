@@ -24,7 +24,7 @@ export default function Replanning() {
   useEffect(() => {
     listPlanVersions()
       .then((versions) => {
-        const current = versions.find((item) => item.status === "APPROVED") ?? null;
+        const current = versions.find((item) => item.planType === "WEEKLY" && item.status === "APPROVED") ?? null;
         setApproved(current);
         if (current) {
           const freeze = current.triggerDetail?.freezeBefore;
@@ -75,7 +75,7 @@ export default function Replanning() {
       {approved === null && (
         <SectionPanel title="No approved plan" accent="warning">
           <p className="muted-note" style={{ marginBottom: 8 }}>
-            Emergency replanning starts from the plan in force. Approve a version first.
+            Emergency replanning starts from the weekly plan in force. Approve a weekly version first.
           </p>
           <button type="button" className="btn-rail btn-rail-primary" onClick={() => navigate("/versions")}>
             Go to plan versions

@@ -250,3 +250,21 @@ def test_include_details_lists_candidates_rejections_and_edges():
     assert details["T2"]["scheduled_window"] in details["T2"]["candidate_windows"]
     assert all(set(edge) == {"a", "b", "kind", "rule", "detail"} for edge in result["compatibility_edges"])
     assert "task_details" not in plan_blocks(scenario())
+
+
+def test_asset_downtime_counts_work_in_one_window_as_one_outage():
+    data = scenario()
+    for task in data["tasks"]:
+        task["asset_id"] = "A1"
+    result = plan_blocks(data)
+    downtime = result["asset_downtime"]
+    assert downtime["assets_worked"] == 1
+    assert downtime["total_downtime_minutes"] == 150  # two 75-minute jobs
+    assert downtime["outages"] == 1
+    assert downtime["bundled_assets"] == 1
+
+
+def test_p1_band_follows_the_threshold_sent_by_the_api():
+    # T1 scores 90, T2 scores 70.
+    assert plan_blocks(scenario())["kpis"]["p1_total"] == 2  # default 70
+    assert plan_blocks(scenario(p1_threshold=80))["kpis"]["p1_total"] == 1

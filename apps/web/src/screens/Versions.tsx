@@ -180,6 +180,7 @@ export default function Versions() {
             emptyMessage="No versions yet — generate a plan."
             columns={[
               { header: "Ver", accessor: (row) => <strong>V{row.version}</strong>, width: 50 },
+              { header: "Plan", accessor: (row) => (row.planType === "MONTHLY" ? "Monthly" : "Weekly"), width: 70 },
               { header: "Type", accessor: (row) => triggerLabels[row.triggerType], width: 150 },
               { header: "Status", accessor: (row) => <StatusBadge status={statusTone[row.status] ?? row.status} label={row.status} />, width: 110 },
               { header: "Scheduled", accessor: (row) => row.kpis.tasks_scheduled, width: 80 },
@@ -191,12 +192,16 @@ export default function Versions() {
         </SectionPanel>
 
         <SectionPanel
-          title={selected ? `V${selected.version} · ${triggerLabels[selected.triggerType]}` : "Version"}
+          title={selected ? `V${selected.version} · ${selected.planType === "MONTHLY" ? "Monthly plan" : triggerLabels[selected.triggerType]}` : "Version"}
           subtitle={selected ? `Run ${selected.runId}${parent ? ` · from V${parent.version}` : ""}` : undefined}
           level={3}
           accent={selected?.status === "APPROVED" ? "success" : selected?.status === "REJECTED" ? "critical" : "navy"}
           action={
-            selected && (
+            selected?.planType === "MONTHLY" ? (
+              <button type="button" className="btn-rail btn-rail-secondary" onClick={() => navigate("/monthly")}>
+                Open monthly plan
+              </button>
+            ) : selected && (
               <button
                 type="button"
                 className="btn-rail btn-rail-secondary"
@@ -250,7 +255,7 @@ export default function Versions() {
         </SectionPanel>
       )}
 
-      {selected && (selected.status === "DRAFT" || selected.status === "APPROVED") && (
+      {selected && selected.planType === "WEEKLY" && (selected.status === "DRAFT" || selected.status === "APPROVED") && (
         <SectionPanel title={`Modify V${selected.version}`}>
           <ModifyPanel
             version={selected}
@@ -263,7 +268,7 @@ export default function Versions() {
         </SectionPanel>
       )}
 
-      {selected?.status === "APPROVED" && (
+      {selected?.planType === "WEEKLY" && selected.status === "APPROVED" && (
         <SectionPanel title="Disruption on the approved plan?" accent="warning">
           <button type="button" className="btn-rail btn-rail-secondary" onClick={() => navigate("/replanning")}>
             Open emergency replanning

@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 
 import { pool } from "../config/database.js";
 import {
+  DEFAULT_MONTH_WEEKS,
   generateBlockPlan,
+  generateMonthlyPlan,
   replanFrom,
   type PreviousAssignment,
   type WhatIfChange,
@@ -13,7 +15,8 @@ import {
 
 // Plan versions: every generated, modified or replanned plan is stored as a
 // DRAFT version. Only a planner can approve or reject it; approving one
-// supersedes the previously approved version. Every action is logged in
+// supersedes the previously approved version of the same type (weekly or
+// monthly). Every action is logged in
 // railopt.plan_events.
 
 export class PlanVersionError extends Error {
@@ -26,12 +29,14 @@ export class PlanVersionError extends Error {
 }
 
 type TriggerType = "PLAN" | "MODIFY" | "REPLAN";
+type PlanType = "WEEKLY" | "MONTHLY";
 
 type PlanRow = {
   run_id: string;
   version: number;
   parent_run_id: string | null;
   trigger_type: TriggerType;
+  plan_type: PlanType;
   trigger_detail: Record<string, unknown> | null;
   planning_date: string;
   horizon_days: number;
@@ -45,7 +50,7 @@ type PlanRow = {
   created_at: string;
 };
 
-const SUMMARY_COLUMNS = `run_id, version, parent_run_id, trigger_type, trigger_detail,
+const SUMMARY_COLUMNS = `run_id, version, parent_run_id, trigger_type, plan_type, trigger_detail,
   to_char(planning_date, 'YYYY-MM-DD') AS planning_date, horizon_days,
   solver_status, validation_passed, kpis, status, decided_by, decision_reason,
   to_char(decided_at, 'YYYY-MM-DD HH24:MI:SS') AS decided_at,
@@ -76,6 +81,7 @@ function toSummary(row: PlanRow) {
     version: row.version,
     parentRunId: row.parent_run_id,
     triggerType: row.trigger_type,
+    planType: row.plan_type,
     triggerDetail: row.trigger_detail,
     planningDate: row.planning_date,
     horizonDays: row.horizon_days,
@@ -124,6 +130,7 @@ async function saveVersion(
   reason: string | null,
   parentRunId: string | null,
   detail: Record<string, unknown> | null,
+  planType: PlanType = "WEEKLY",
 ): Promise<PlanVersionSummary> {
   await ensureTables();
   const runId = randomUUID().slice(0, 8).toUpperCase();
@@ -131,9 +138,9 @@ async function saveVersion(
     `INSERT INTO railopt.planning_runs
        (run_id, version, parent_run_id, trigger_type, trigger_detail, planning_date,
         horizon_days, priority_source, priority_run_id, model_version, solver_status,
-        validation_passed, kpis, result)
+        validation_passed, kpis, result, plan_type)
      VALUES ($1, (SELECT COALESCE(MAX(version), 0) + 1 FROM railopt.planning_runs),
-             $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING ${SUMMARY_COLUMNS}`,
     [
       runId,
@@ -149,9 +156,10 @@ async function saveVersion(
       result.validation.passed,
       result.kpis,
       result,
+      planType,
     ],
   );
-  await logEvent(runId, "CREATED", actor, reason, { trigger, parentRunId });
+  await logEvent(runId, "CREATED", actor, reason, { trigger, parentRunId, planType });
   return toSummary(inserted.rows[0]!);
 }
 
@@ -200,9 +208,21 @@ export async function getEvents(runId: string | null) {
   return rows.rows;
 }
 
-/** ML priority → CP-SAT, stored as a new DRAFT version. */
-export async function createPlan(actorInput: unknown) {
-  const actor = typeof actorInput === "string" && actorInput.trim() ? actorInput.trim() : "planner";
+/**
+ * ML priority → CP-SAT, stored as a new DRAFT version: the weekly plan
+ * (minute-level) or the monthly rough-cut plan (task → week).
+ */
+export async function createPlan(body: Record<string, unknown>) {
+  const actor = typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "planner";
+  if (body.type === "MONTHLY") {
+    const weeks = body.weeks === undefined ? DEFAULT_MONTH_WEEKS : Number(body.weeks);
+    if (!Number.isInteger(weeks) || weeks < 1 || weeks > 8) {
+      throw new PlanVersionError("weeks must be a whole number from 1 to 8", 422);
+    }
+    const result = (await generateMonthlyPlan(weeks)) as unknown as PlanResult;
+    const summary = await saveVersion(result, "PLAN", actor, null, null, { weeks }, "MONTHLY");
+    return { ...summary, plan: result };
+  }
   const result = (await generateBlockPlan()) as unknown as PlanResult;
   const summary = await saveVersion(result, "PLAN", actor, null, null, null);
   return { ...summary, plan: result };
@@ -224,8 +244,8 @@ export async function approveVersion(runId: string, body: Record<string, unknown
     await client.query("BEGIN");
     const superseded = await client.query<{ run_id: string }>(
       `UPDATE railopt.planning_runs SET status = 'SUPERSEDED'
-       WHERE status = 'APPROVED' AND run_id <> $1 RETURNING run_id`,
-      [runId],
+       WHERE status = 'APPROVED' AND run_id <> $1 AND plan_type = $2 RETURNING run_id`,
+      [runId, row.plan_type],
     );
     for (const previous of superseded.rows) {
       await logEvent(previous.run_id, "SUPERSEDED", actor, `Replaced by V${row.version}`, { by: runId }, client);
@@ -286,6 +306,9 @@ async function derive(
   const actor = requireText(body.actor, "Planner name");
   const reason = requireText(body.reason, "A reason");
   const parent = await loadRow(parentRunId);
+  if (parent.plan_type !== "WEEKLY") {
+    throw new PlanVersionError("Only weekly plans can be modified or replanned; generate a new monthly plan instead", 409);
+  }
   const changes = parseChanges(body.changes);
   const pins = trigger === "MODIFY" ? parsePins(body.pins) : {};
 

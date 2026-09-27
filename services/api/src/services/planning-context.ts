@@ -10,11 +10,16 @@ export type ImpactLevel = "Low" | "Medium" | "High";
 // Tasks that still need planning attention.
 export const ACTIVE_TASK_STATUSES = ["PENDING", "SCHEDULED", "IN_PROGRESS"];
 
-// Priority bands match the dataset's own priority_category ranges
-// (CRITICAL >= 80, HIGH >= 65, MEDIUM/LOW below).
+// Priority bands, set on the ML score distribution of the pending tasks:
+// P1 = top ~10% (score >= 70), P2 = 60-69, P3 below. The ML model compresses
+// scores (its highest pending score is 77), so the dataset's CRITICAL >= 80
+// band would only ever contain planner overrides. Bands label tasks and feed
+// KPIs; CP-SAT always optimises on the score itself.
+export const PRIORITY_BANDS = { P1: 70, P2: 60 } as const;
+
 export function toPriorityLevel(score: number): PriorityLevel {
-  if (score >= 80) return "P1";
-  if (score >= 65) return "P2";
+  if (score >= PRIORITY_BANDS.P1) return "P1";
+  if (score >= PRIORITY_BANDS.P2) return "P2";
   return "P3";
 }
 

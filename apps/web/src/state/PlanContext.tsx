@@ -65,7 +65,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     listPlanVersions()
       .then((versions) => {
-        const pick = versions.find((item) => item.status === "APPROVED") ?? versions[0];
+        // Plan screens show the weekly plan; monthly plans have their own screen.
+        const weekly = versions.filter((item) => item.planType === "WEEKLY");
+        const pick = weekly.find((item) => item.status === "APPROVED") ?? weekly[0];
         if (pick) void loadVersion(pick.runId);
       })
       .catch(() => undefined);
