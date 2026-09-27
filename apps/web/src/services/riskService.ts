@@ -1,6 +1,7 @@
 import type { RiskSummary, RiskTask } from "../types/risk";
 
 export interface RiskData {
+  planningDate: string;
   summary: RiskSummary[];
   tasks: RiskTask[];
 }
@@ -11,7 +12,11 @@ function isRiskData(value: unknown): value is RiskData {
   if (typeof value !== "object" || value === null) return false;
 
   const risk = value as Partial<RiskData>;
-  return Array.isArray(risk.summary) && Array.isArray(risk.tasks);
+  return (
+    typeof risk.planningDate === "string" &&
+    Array.isArray(risk.summary) &&
+    Array.isArray(risk.tasks)
+  );
 }
 
 export async function getRiskData(): Promise<RiskData> {
@@ -27,10 +32,7 @@ export async function getRiskData(): Promise<RiskData> {
       throw new Error("Risk API returned an invalid response");
     }
 
-    return {
-      summary: payload.summary.map((item) => ({ ...item })),
-      tasks: payload.tasks.map((task) => ({ ...task })),
-    };
+    return payload;
   } catch (error) {
     console.error("Unable to load risk data from the Node API:", error);
     throw new Error("Risk data is unavailable");

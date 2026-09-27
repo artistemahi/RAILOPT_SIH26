@@ -4,7 +4,7 @@ import type {
   PendingTask,
   PlanningSummary,
   SelectedBlock,
-} from "./mock/blockPlannerData";
+} from "../types/planner";
 
 export interface PlannerTrain {
   train_key: string;
@@ -20,10 +20,11 @@ export interface OptimizeResult {
   metadata: Record<string, number>;
 }
 
-interface PlannerData {
+export interface PlannerData {
+  planningDate: string;
   summary: PlanningSummary[];
   rows: GanttRow[];
-  selectedBlock: SelectedBlock;
+  selectedBlock: SelectedBlock | null;
   constraints: ConstraintStatus[];
   pendingTasks: PendingTask[];
   trains: PlannerTrain[];
@@ -36,12 +37,13 @@ function isPlannerData(value: unknown): value is PlannerData {
 
   const planner = value as Partial<PlannerData>;
   return (
+    typeof planner.planningDate === "string" &&
     Array.isArray(planner.summary) &&
     Array.isArray(planner.rows) &&
     typeof planner.selectedBlock === "object" &&
-    planner.selectedBlock !== null &&
     Array.isArray(planner.constraints) &&
-    Array.isArray(planner.pendingTasks)
+    Array.isArray(planner.pendingTasks) &&
+    Array.isArray(planner.trains)
   );
 }
 
@@ -60,17 +62,7 @@ export async function getBlockPlannerData(): Promise<PlannerData> {
       throw new Error("Planner API returned an invalid response");
     }
 
-    return {
-      summary: payload.summary.map((item) => ({ ...item })),
-      rows: payload.rows.map((row) => ({
-        ...row,
-        blocks: row.blocks.map((block) => ({ ...block })),
-      })),
-      selectedBlock: { ...payload.selectedBlock },
-      constraints: payload.constraints.map((constraint) => ({ ...constraint })),
-      pendingTasks: payload.pendingTasks.map((task) => ({ ...task })),
-      trains: payload.trains.map((train) => ({ ...train })),
-    };
+    return payload;
   } catch (error) {
     console.error("Unable to load planner data from the Node API:", error);
     throw new Error("Planner data is unavailable");

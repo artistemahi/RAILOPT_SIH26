@@ -1,4 +1,4 @@
-import { BellIcon, ClockIcon, RefreshIcon, UserIcon } from "./icons";
+import { RefreshIcon, UserIcon } from "./icons";
 
 export function DashboardHeader({
   title = "Dashboard",
@@ -23,25 +23,13 @@ export function DashboardHeader({
           Demo Environment
         </span>
 
-        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
-          <ClockIcon />
-          <span>20 May 2025 | 10:30 AM</span>
-        </div>
-
         <button
           type="button"
+          onClick={() => window.location.reload()}
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
         >
           <RefreshIcon />
           Refresh
-        </button>
-
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60"
-        >
-          <BellIcon />
         </button>
 
         <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">

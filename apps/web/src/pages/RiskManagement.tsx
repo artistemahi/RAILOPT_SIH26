@@ -2,27 +2,86 @@ import { useEffect, useMemo, useState } from "react";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
 import { Sidebar } from "../components/dashboard/Sidebar";
 import { RiskDetailsPanel } from "../components/risk/RiskDetailsPanel";
-import { RiskFilters } from "../components/risk/RiskFilters";
+import {
+  emptyRiskFilters,
+  RiskFilters,
+  type RiskFilterState,
+} from "../components/risk/RiskFilters";
 import { RiskSummaryCards } from "../components/risk/RiskSummaryCards";
 import { RiskTable } from "../components/risk/RiskTable";
-import { getRiskData } from "../services/riskService";
-import type { RiskDetails, RiskSummary, RiskTask } from "../types/risk";
+import { getRiskData, type RiskData } from "../services/riskService";
+import type { RiskDetails, RiskTask } from "../types/risk";
 
-const riskFactorPalette = {
+const factorPalette = {
   criticality: "#ef4444",
-  overdue: "#f97316",
-  defect: "#f59e0b",
-  condition: "#22c55e",
+  urgency: "#f97316",
   impact: "#3b82f6",
+  condition: "#22c55e",
+  defects: "#f59e0b",
 };
 
+function toDetails(task: RiskTask): RiskDetails {
+  const degradation =
+    task.conditionScore === null ? null : Math.round(100 - task.conditionScore);
+
+  return {
+    taskId: task.taskId,
+    assetId: task.assetId,
+    task: task.task,
+    department: task.department,
+    section: task.section,
+    priorityScore: task.riskScore,
+    scoreSource: task.scoreSource,
+    priority: task.priority,
+    taskStatus: task.taskStatus,
+    overdueDays: task.overdueDays,
+    condition:
+      task.conditionScore === null
+        ? task.condition
+        : `${task.condition} (${task.conditionScore})`,
+    factors: [
+      {
+        label: "Task Criticality",
+        value: task.criticality,
+        display: String(task.criticality),
+        color: factorPalette.criticality,
+      },
+      {
+        label: "Urgency",
+        value: task.urgencyScore,
+        display: String(task.urgencyScore),
+        color: factorPalette.urgency,
+      },
+      {
+        label: "Operational Impact",
+        value: task.operationalImpact,
+        display: String(task.operationalImpact),
+        color: factorPalette.impact,
+      },
+      {
+        label: "Asset Degradation (100 − condition)",
+        value: degradation ?? 0,
+        display: degradation === null ? "n/a" : String(degradation),
+        color: factorPalette.condition,
+      },
+      {
+        label: "Open Defects on Asset",
+        value: Math.min(100, task.defectHistory * 10),
+        display: String(task.defectHistory),
+        color: factorPalette.defects,
+      },
+    ],
+    riskLevel:
+      task.priority === "P1" ? "Critical" : task.priority === "P2" ? "High" : "Medium/Low",
+    urgency: task.urgency,
+  };
+}
+
 export default function RiskManagementPage() {
-  const [data, setData] = useState<{
-    summary: RiskSummary[];
-    tasks: RiskTask[];
-  } | null>(null);
+  const [data, setData] = useState<RiskData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedAssetId, setSelectedAssetId] = useState("A104");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<RiskFilterState>(emptyRiskFilters);
 
   useEffect(() => {
     void getRiskData()
@@ -34,73 +93,32 @@ export default function RiskManagementPage() {
       });
   }, []);
 
+  const departments = useMemo(
+    () => [...new Set(data?.tasks.map((task) => task.department))].sort(),
+    [data],
+  );
+  const sections = useMemo(
+    () => [...new Set(data?.tasks.map((task) => task.section))].sort(),
+    [data],
+  );
+
+  const visibleTasks = useMemo(
+    () =>
+      (data?.tasks ?? []).filter(
+        (task) =>
+          (!filters.department || task.department === filters.department) &&
+          (!filters.priority || task.priority === filters.priority) &&
+          (!filters.section || task.section === filters.section),
+      ),
+    [data, filters],
+  );
+
   const selectedTask = useMemo(() => {
     const task =
-      data?.tasks.find((item) => item.assetId === selectedAssetId) ??
-      data?.tasks[0];
-
-    if (!task) return null;
-
-    return {
-      assetId: task.assetId,
-      task: task.task,
-      department: task.department,
-      section: task.section,
-      riskProbability: task.riskProbability,
-      priority: task.priority,
-      criticality: task.criticality,
-      overdueDays: task.overdueDays,
-      condition: task.condition,
-      factors: [
-        {
-          label: "Criticality",
-          value: task.criticality,
-          color: riskFactorPalette.criticality,
-        },
-        {
-          label: "Overdue Days",
-          value: Math.min(100, task.overdueDays * 4),
-          color: riskFactorPalette.overdue,
-        },
-        {
-          label: "Defect History",
-          value: task.defectHistory ?? 60,
-          color: riskFactorPalette.defect,
-        },
-        {
-          label: "Condition",
-          value:
-            task.condition === "Poor"
-              ? 55
-              : task.condition === "Fair"
-                ? 45
-                : 30,
-          color: riskFactorPalette.condition,
-        },
-        {
-          label: "Operational Impact",
-          value: task.operationalImpact ?? 65,
-          color: riskFactorPalette.impact,
-        },
-      ],
-      recommendation: "Prioritize for the next feasible maintenance window.",
-      riskLevel:
-        task.priority === "P1"
-          ? "Critical"
-          : task.priority === "P2"
-            ? "High"
-            : "Medium",
-      urgency: task.urgency,
-      operationalImpact:
-        task.priority === "P1"
-          ? "High"
-          : task.priority === "P2"
-            ? "Medium"
-            : "Moderate",
-      planningImplication:
-        task.priority === "P1" ? "Reschedule Needed" : "Window Available",
-    } satisfies RiskDetails;
-  }, [data, selectedAssetId]);
+      visibleTasks.find((item) => item.taskId === selectedTaskId) ??
+      visibleTasks[0];
+    return task ? toDetails(task) : null;
+  }, [visibleTasks, selectedTaskId]);
 
   if (error) {
     return (
@@ -128,7 +146,7 @@ export default function RiskManagementPage() {
       <Sidebar />
 
       <div className="ml-52 min-h-screen bg-slate-100">
-        <DashboardHeader />
+        <DashboardHeader title="Risk & Priority" />
 
         <main className="space-y-4 p-4">
           <div className="flex items-end justify-between gap-4">
@@ -137,7 +155,8 @@ export default function RiskManagementPage() {
                 Risk & Priority
               </h1>
               <p className="mt-1 text-[13px] text-slate-500">
-                Identify high-risk maintenance requiring early attention.
+                Active maintenance tasks ranked by priority score · planning
+                date {data.planningDate}
               </p>
             </div>
             <div className="hidden rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-right md:block">
@@ -145,33 +164,39 @@ export default function RiskManagementPage() {
                 Attention queue
               </div>
               <div className="mt-0.5 text-lg font-semibold text-rose-700">
-                {data.tasks.filter((task) => task.riskScore >= 80).length}
+                {data.summary[0]?.value ?? 0}
               </div>
-              <div className="text-[10px] text-rose-600">
-                critical risk items
-              </div>
+              <div className="text-[10px] text-rose-600">P1 tasks</div>
             </div>
           </div>
 
           <RiskSummaryCards summary={data.summary} />
 
-          <RiskFilters />
+          <RiskFilters
+            departments={departments}
+            sections={sections}
+            value={filters}
+            onChange={setFilters}
+          />
 
           <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.85fr_0.95fr]">
             <div className="space-y-3">
               <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="mb-3 text-[14px] font-semibold text-slate-800">
-                  Maintenance Risk List
+                <div className="mb-3 flex items-center justify-between text-[14px] font-semibold text-slate-800">
+                  <span>Maintenance Priority List</span>
+                  <span className="text-[11px] font-normal text-slate-500">
+                    {visibleTasks.length} of top {data.tasks.length} shown
+                  </span>
                 </div>
-                {data.tasks.length ? (
+                {visibleTasks.length ? (
                   <RiskTable
-                    tasks={data.tasks}
-                    selectedId={selectedAssetId}
-                    onSelect={setSelectedAssetId}
+                    tasks={visibleTasks}
+                    selectedId={selectedTask?.taskId ?? ""}
+                    onSelect={setSelectedTaskId}
                   />
                 ) : (
                   <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-                    No risk tasks are available.
+                    No tasks match these filters.
                   </div>
                 )}
               </div>
@@ -182,16 +207,17 @@ export default function RiskManagementPage() {
                 <RiskDetailsPanel details={selectedTask} />
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
-                  Select a task to view risk details.
+                  Select a task to view its priority inputs.
                 </div>
               )}
             </div>
           </section>
 
           <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-            Risk scores are predictive inputs to the scheduling optimizer;
-            operational constraints are enforced separately by the optimization
-            engine.
+            Priority scores come from the ML priority service when it has been
+            run (POST /api/priority/predict), otherwise from the dataset. They are
+            soft inputs to planning; hard operational constraints are enforced
+            separately.
           </div>
         </main>
       </div>

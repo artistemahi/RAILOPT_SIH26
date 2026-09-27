@@ -1,10 +1,10 @@
-import type { PlanningBlock } from "../../services/mock/blockPlannerData";
+import type { PlanningBlock } from "../../types/planner";
 
 const impactStyles = {
   Low: "border-emerald-200 bg-emerald-100 text-emerald-800",
   Medium: "border-amber-200 bg-amber-100 text-amber-800",
   High: "border-red-200 bg-red-100 text-red-800",
-  Approved: "border-blue-200 bg-blue-100 text-blue-800",
+  Unavailable: "border-slate-300 bg-slate-100 text-slate-500",
 };
 
 export function GanttBlock({
@@ -30,7 +30,8 @@ export function GanttBlock({
         selected ? "ring-2 ring-blue-300 ring-offset-1" : "",
       ].join(" ")}
       style={{ left: `${left}%`, width: `${width}%` }}
-      aria-label={`Select block ${block.id}`}
+      aria-label={`Select window ${block.id}`}
+      title={`${block.id} · ${block.startLabel}–${block.endLabel} · ${block.candidateTasks} candidate task(s)`}
     >
       <span className="truncate">{block.id}</span>
     </button>

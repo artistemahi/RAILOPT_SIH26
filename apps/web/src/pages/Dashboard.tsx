@@ -62,11 +62,12 @@ export default function DashboardPage() {
                 See what needs attention first
               </h1>
               <p className="mt-1 text-xs text-slate-500">
-                Live asset, maintenance, and block data from the operations API.
+                Synthetic planning dataset via the RAILOPT API · planning date{" "}
+                {data.planningDate}
               </p>
             </div>
             <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 md:inline-flex">
-              Live data
+              Synthetic data
             </span>
           </section>
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -83,7 +84,13 @@ export default function DashboardPage() {
                 No maintenance tasks are currently available.
               </div>
             )}
-            <RecommendationCard recommendation={data.recommendedBlock} />
+            {data.recommendedBlock ? (
+              <RecommendationCard recommendation={data.recommendedBlock} />
+            ) : (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
+                No available block windows on the planning date.
+              </div>
+            )}
           </section>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-[1.2fr_0.8fr_1fr]">

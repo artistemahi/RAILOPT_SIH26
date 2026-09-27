@@ -8,7 +8,6 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "seed": "tsx src/database/seed.ts",
     "import": "tsx src/database/importDataset.ts"
   },
   "dependencies": {

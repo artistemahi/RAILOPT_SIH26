@@ -1,4 +1,23 @@
 import { pool } from "../config/database.js";
+import {
+  describeTask,
+  describeWindowReason,
+  formatClock,
+  formatDateLabel,
+  formatDuration,
+  getActiveTasks,
+  getPlanningDate,
+  getSections,
+  getWindowsForDate,
+  pickTopCandidateWindow,
+  toPriorityCoverage,
+  toPriorityLevel,
+  type ImpactLevel,
+  type PriorityLevel,
+  type WindowSummary,
+} from "./planning-context.js";
+
+const MAX_PENDING_TASKS = 25;
 
 type PlanningSummary = {
   label: string;
@@ -13,13 +32,19 @@ type PlanningBlock = {
   section: string;
   startHour: number;
   endHour: number;
-  impact: "Low" | "Medium" | "High" | "Approved";
-  status: "Low Impact" | "Medium Impact" | "High Impact" | "Approved";
+  impact: ImpactLevel | "Unavailable";
+  status: "Low Impact" | "Medium Impact" | "High Impact" | "Unavailable";
+  blockId: string;
+  blockType: string;
   blockStatus: string;
-  solverStatus: string | null;
   startLabel: string;
   endLabel: string;
   duration: string;
+  candidateTasks: number;
+  overlappingTrains: number;
+  trainImpact: ImpactLevel;
+  priorityCoverage: "High" | "Medium" | "Low";
+  reason: string;
 };
 
 type GanttRow = {
@@ -35,11 +60,10 @@ type SelectedBlock = {
   timeWindow: string;
   duration: string;
   tasksScheduled: number;
-  trainImpact: "High" | "Medium" | "Low";
+  trainImpact: ImpactLevel;
   priorityCoverage: "High" | "Medium" | "Low";
   reason: string;
   blockStatus: string;
-  solverStatus: string | null;
 };
 
 type ConstraintStatus = {
@@ -49,12 +73,13 @@ type ConstraintStatus = {
 };
 
 type PendingTask = {
+  taskId: string;
   assetId: string;
   task: string;
   department: string;
   section: string;
   riskScore: number;
-  priority: "P1" | "P2" | "P3";
+  priority: PriorityLevel;
   reason: string;
 };
 
@@ -67,244 +92,254 @@ type PlannerTrain = {
 };
 
 export type BlockPlannerResponse = {
+  planningDate: string;
   summary: PlanningSummary[];
   rows: GanttRow[];
-  selectedBlock: SelectedBlock;
+  selectedBlock: SelectedBlock | null;
   constraints: ConstraintStatus[];
   pendingTasks: PendingTask[];
   trains: PlannerTrain[];
 };
 
-type BlockRow = {
-  id: string;
-  section: string;
-  start_time: string;
-  end_time: string;
-  duration_min: number;
-  train_impact: "Low" | "Medium" | "High";
-  priority_coverage: "High" | "Medium" | "Low";
-  status: string;
-  solver_status: string | null;
-};
-
-type TaskRow = {
-  asset_id: string;
-  task: string;
-  department: string;
-  section: string;
-  risk_score: number;
-  priority: "P1" | "P2" | "P3";
-  status: string;
-};
-
-type ImpactRow = {
-  block_id: string;
-  predicted_delay_min: number;
-  impact_level: "Low" | "Medium" | "High";
-};
-
-type TrainRow = {
-  id: string;
-  section: string | null;
-  scheduled_departure: string | null;
-};
-
-const sectionLabels: Record<string, string> = {
-  SEC01: "NDLS – ALD",
-  SEC02: "ALD – CNB",
-  SEC03: "CNB – KANPUR",
-  SEC04: "KANPUR – LKO",
-};
-
-const sectionRowIds: Record<string, string> = {
-  SEC01: "row-1",
-  SEC02: "row-2",
-  SEC03: "row-3",
-  SEC04: "row-4",
-};
-
-function parseHour(value: string): number {
-  const [hours, minutes] = value.slice(0, 5).split(":").map(Number);
-  return hours + minutes / 60;
+function hoursSinceMidnight(value: Date, planningDate: string): number {
+  const dayStart = new Date(`${planningDate}T00:00:00`).getTime();
+  return (value.getTime() - dayStart) / 3_600_000;
 }
 
-function formatTime(value: string): string {
-  return value.slice(0, 5);
+function toPlanningBlock(
+  window: WindowSummary,
+  rowId: string,
+  sectionLabel: string,
+  planningDate: string,
+): PlanningBlock {
+  const impact = window.available ? window.impact : "Unavailable";
+  return {
+    id: window.windowId,
+    rowId,
+    section: sectionLabel,
+    startHour: Math.max(0, hoursSinceMidnight(window.start, planningDate)),
+    // The Gantt shows one day; windows running past midnight are clipped.
+    endHour: Math.min(24, hoursSinceMidnight(window.end, planningDate)),
+    impact,
+    status: impact === "Unavailable" ? "Unavailable" : `${impact} Impact`,
+    blockId: window.blockId,
+    blockType: window.blockType,
+    blockStatus: window.status,
+    startLabel: formatClock(window.start),
+    endLabel: formatClock(window.end),
+    duration: formatDuration(window.durationMin),
+    candidateTasks: window.candidateTaskIds.length,
+    overlappingTrains: window.overlappingTrains,
+    trainImpact: window.impact,
+    priorityCoverage: toPriorityCoverage(window.topCandidateScore),
+    reason: describeWindowReason(window),
+  };
 }
 
-function formatDuration(durationMin: number): string {
-  const hours = Math.floor(durationMin / 60);
-  const minutes = durationMin % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")} Hrs`;
+async function getTrainsForDate(planningDate: string): Promise<PlannerTrain[]> {
+  const result = await pool.query<{
+    train_id: string;
+    section_id: string;
+    entry_clock: string;
+    stop_order: number;
+  }>(
+    `SELECT train_id,
+            section_id,
+            to_char(entry_time, 'HH24:MI:SS') AS entry_clock,
+            ROW_NUMBER() OVER (PARTITION BY train_id ORDER BY entry_time, movement_id)::int
+              AS stop_order
+     FROM railopt.train_movements
+     WHERE entry_time >= $1::date
+       AND entry_time < $1::date + 1
+     ORDER BY entry_time, movement_id`,
+    [planningDate],
+  );
+
+  return result.rows.map((row) => ({
+    train_key: row.train_id,
+    station_id: row.section_id,
+    stop_order: row.stop_order,
+    scheduled_departure: row.entry_clock,
+    predicted_delay_min: 0,
+  }));
 }
 
-function getImpactStatus(
-  impact: BlockRow["train_impact"],
-): PlanningBlock["status"] {
-  return impact === "High"
-    ? "High Impact"
-    : impact === "Medium"
-      ? "Medium Impact"
-      : "Low Impact";
-}
-
-function getReason(block: BlockRow): string {
-  if (block.id === "B104")
-    return "High risk tasks and track geometry constraints";
-  return "Operational constraints in the selected window";
+async function getConstraintCounts(): Promise<{
+  resourcesAvailable: number;
+  resourcesTotal: number;
+  restrictedBlocks: number;
+  mandatoryDependencies: number;
+}> {
+  const result = await pool.query<{
+    resources_available: string;
+    resources_total: string;
+    restricted_blocks: string;
+    mandatory_dependencies: string;
+  }>(
+    `SELECT
+       (SELECT COUNT(*) FROM railopt.resources WHERE status = 'AVAILABLE') AS resources_available,
+       (SELECT COUNT(*) FROM railopt.resources) AS resources_total,
+       (SELECT COUNT(*) FROM railopt.blocks WHERE status = 'RESTRICTED') AS restricted_blocks,
+       (SELECT COUNT(*) FROM railopt.dependencies d
+          JOIN railopt.maintenance_tasks p ON p.task_id = d.predecessor_task_id
+          JOIN railopt.maintenance_tasks s ON s.task_id = d.successor_task_id
+         WHERE d.mandatory
+           AND p.status IN ('PENDING', 'SCHEDULED', 'IN_PROGRESS')
+           AND s.status IN ('PENDING', 'SCHEDULED', 'IN_PROGRESS')) AS mandatory_dependencies`,
+  );
+  const row = result.rows[0];
+  return {
+    resourcesAvailable: Number(row.resources_available),
+    resourcesTotal: Number(row.resources_total),
+    restrictedBlocks: Number(row.restricted_blocks),
+    mandatoryDependencies: Number(row.mandatory_dependencies),
+  };
 }
 
 export async function getBlockPlannerData(): Promise<BlockPlannerResponse> {
-  const [blocksResult, tasksResult, impactsResult, trainsResult] =
-    await Promise.all([
-      pool.query<BlockRow>(
-        `SELECT id, section, start_time, end_time, duration_min, train_impact,
-              priority_coverage, status, solver_status
-       FROM maintenance_blocks
-       ORDER BY section, start_time, id`,
-      ),
-      pool.query<TaskRow>(
-        `SELECT mt.asset_id, mt.task, mt.department, a.section, mt.risk_score,
-              mt.priority, mt.status
-       FROM maintenance_tasks mt
-       INNER JOIN assets a ON a.id = mt.asset_id
-       WHERE mt.status = 'Pending'
-       ORDER BY mt.risk_score DESC, mt.id`,
-      ),
-      pool.query<ImpactRow>(
-        `SELECT block_id, predicted_delay_min, impact_level
-       FROM train_impacts
-       ORDER BY block_id, id`,
-      ),
-      pool.query<TrainRow>(
-        `SELECT id, section, scheduled_departure
-       FROM trains
-       ORDER BY scheduled_departure, id`,
-      ),
-    ]);
+  const planningDate = await getPlanningDate();
+  const tasks = await getActiveTasks(planningDate);
+  const [sections, windows, trains, counts] = await Promise.all([
+    getSections(),
+    getWindowsForDate(planningDate, tasks),
+    getTrainsForDate(planningDate),
+    getConstraintCounts(),
+  ]);
 
-  const blocks = blocksResult.rows;
-  const tasks = tasksResult.rows;
-  const impacts = impactsResult.rows;
-  const trains = trainsResult.rows;
-  const firstBlock = blocks[0];
+  const sectionLabels = new Map(
+    sections.map((section) => [section.sectionId, section.label]),
+  );
 
-  if (!firstBlock) {
-    throw new Error("No maintenance blocks are available for planning");
-  }
+  const rows: GanttRow[] = sections.map((section, index) => {
+    const rowId = `row-${index + 1}`;
+    const fullLabel = `${section.label} (${section.sectionId})`;
+    return {
+      id: rowId,
+      label: section.label,
+      section: section.sectionId,
+      blocks: windows
+        .filter((window) => window.sectionId === section.sectionId)
+        .map((window) => toPlanningBlock(window, rowId, fullLabel, planningDate)),
+    };
+  });
 
-  const rows = Object.entries(sectionLabels).map(([section, label]) => ({
-    id: sectionRowIds[section],
-    label,
-    section,
-    blocks: blocks
-      .filter((block) => block.section === section)
-      .map((block) => ({
-        id: block.id,
-        rowId: sectionRowIds[section],
-        section: `${label} (${section})`,
-        startHour: parseHour(block.start_time),
-        endHour: parseHour(block.end_time),
-        impact: block.train_impact,
-        status: getImpactStatus(block.train_impact),
-        blockStatus: block.status,
-        solverStatus: block.solver_status,
-        startLabel: formatTime(block.start_time),
-        endLabel: formatTime(block.end_time),
-        duration: formatDuration(Number(block.duration_min)),
-      })),
-  }));
+  const topWindow = pickTopCandidateWindow(windows);
+  const selectedBlock: SelectedBlock | null = topWindow
+    ? {
+        id: topWindow.windowId,
+        section: `${sectionLabels.get(topWindow.sectionId) ?? topWindow.sectionId} (${topWindow.sectionId})`,
+        timeWindow: `${formatClock(topWindow.start)} – ${formatClock(topWindow.end)}`,
+        duration: formatDuration(topWindow.durationMin),
+        tasksScheduled: topWindow.candidateTaskIds.length,
+        trainImpact: topWindow.impact,
+        priorityCoverage: toPriorityCoverage(topWindow.topCandidateScore),
+        reason: describeWindowReason(topWindow),
+        blockStatus: topWindow.status,
+      }
+    : null;
 
-  const selectedBlock = {
-    id: firstBlock.id,
-    section: `${sectionLabels[firstBlock.section] ?? firstBlock.section} (${firstBlock.section})`,
-    timeWindow: `${formatTime(firstBlock.start_time)} – ${formatTime(firstBlock.end_time)}`,
-    duration: formatDuration(Number(firstBlock.duration_min)),
-    tasksScheduled: tasks.filter((task) => task.risk_score >= 70).length,
-    trainImpact: firstBlock.train_impact,
-    priorityCoverage: firstBlock.priority_coverage,
-    reason: getReason(firstBlock),
-    blockStatus: firstBlock.status,
-    solverStatus: firstBlock.solver_status,
-  } satisfies SelectedBlock;
-
-  const totalDelay = impacts.reduce(
-    (sum, impact) => sum + Number(impact.predicted_delay_min),
+  const availableWindows = windows.filter((window) => window.available);
+  const unavailableWindows = windows.length - availableWindows.length;
+  const trainOverlaps = availableWindows.reduce(
+    (sum, window) => sum + window.overlappingTrains,
     0,
   );
-  const highestImpact = impacts.some((impact) => impact.impact_level === "High")
-    ? "HIGH"
-    : impacts.some((impact) => impact.impact_level === "Medium")
-      ? "MEDIUM"
-      : "LOW";
+  const highImpactWindows = availableWindows.filter(
+    (window) => window.impact === "High",
+  ).length;
+  const candidateTaskIds = new Set(
+    availableWindows.flatMap((window) => window.candidateTaskIds),
+  );
+  const overdueTasks = tasks.filter((task) => task.overdueDays > 0).length;
+
+  const pendingTasks = tasks
+    .filter((task) => task.status === "PENDING")
+    .slice(0, MAX_PENDING_TASKS)
+    .map((task) => ({
+      taskId: task.taskId,
+      assetId: task.assetId,
+      task: describeTask(task),
+      department: task.department,
+      section: task.sectionId,
+      riskScore: task.priorityScore,
+      priority: toPriorityLevel(task.priorityScore),
+      reason:
+        task.overdueDays > 0
+          ? `Overdue by ${task.overdueDays} day(s); awaiting block assignment`
+          : candidateTaskIds.has(task.taskId)
+            ? "Has a candidate window today; awaiting block assignment"
+            : "No candidate window on this planning date",
+    }));
 
   return {
+    planningDate,
     summary: [
       {
         label: "Planning Date",
-        value: "20 May 2025",
+        value: formatDateLabel(planningDate),
         tone: "default",
       },
       {
-        label: "Corridor",
-        value: "C1",
-        subtext: "NDLS – LKO",
+        label: "Sections",
+        value: String(sections.length),
+        subtext: `${new Set(windows.map((window) => window.sectionId)).size} with windows today`,
         tone: "default",
       },
       {
-        label: "Blocks Planned",
-        value: String(blocks.length),
-        subtext: blocks.length
-          ? `${formatTime(firstBlock.start_time)} – ${formatTime(blocks[blocks.length - 1].end_time)}`
-          : undefined,
+        label: "Block Windows",
+        value: String(availableWindows.length),
+        subtext: `available of ${windows.length}`,
         tone: "default",
       },
       {
-        label: "Tasks Scheduled",
-        value: String(selectedBlock.tasksScheduled),
-        subtext: `of ${tasks.length}`,
+        label: "Candidate Tasks",
+        value: String(candidateTaskIds.size),
+        subtext: `of ${tasks.length} active`,
         tone: "default",
       },
       {
-        label: "Train Impact",
-        value: highestImpact,
-        subtext: `${totalDelay} min predicted delay`,
-        tone: highestImpact === "LOW" ? "success" : "warning",
+        label: "Train Overlaps",
+        value: String(trainOverlaps),
+        subtext: `${highImpactWindows} high-impact window(s)`,
+        tone: highImpactWindows ? "warning" : "success",
       },
     ],
     rows,
     selectedBlock,
     constraints: [
-      { name: "Track Availability", state: "OK", value: "OK" },
       {
-        name: "Train Path Constraints",
-        state: impacts.length ? "Warning" : "OK",
-        value: impacts.length ? `${impacts.length} Impacts` : "OK",
+        name: "Window Availability",
+        state: unavailableWindows ? "Warning" : "OK",
+        value: `${availableWindows.length}/${windows.length} available`,
       },
-      { name: "Crew Availability", state: "Warning", value: "Not tracked" },
-      { name: "Safety Buffer", state: "OK", value: "OK" },
-      { name: "Block Length", state: "OK", value: "OK" },
       {
-        name: "Simultaneous Blocks",
-        state: blocks.length > 1 ? "Warning" : "OK",
-        value: blocks.length > 1 ? `${blocks.length} Planned` : "OK",
+        name: "Train Movements in Windows",
+        state: trainOverlaps ? "Warning" : "OK",
+        value: `${trainOverlaps} overlaps`,
+      },
+      {
+        name: "Resource Availability",
+        state:
+          counts.resourcesAvailable < counts.resourcesTotal ? "Warning" : "OK",
+        value: `${counts.resourcesAvailable}/${counts.resourcesTotal} available`,
+      },
+      {
+        name: "Mandatory Dependencies",
+        state: counts.mandatoryDependencies ? "Warning" : "OK",
+        value: `${counts.mandatoryDependencies} active`,
+      },
+      {
+        name: "Restricted Blocks",
+        state: counts.restrictedBlocks ? "Warning" : "OK",
+        value: `${counts.restrictedBlocks} need approval`,
+      },
+      {
+        name: "Overdue Tasks",
+        state: overdueTasks ? "Conflict" : "OK",
+        value: `${overdueTasks} overdue`,
       },
     ],
-    pendingTasks: tasks.map((task) => ({
-      assetId: task.asset_id,
-      task: task.task,
-      department: task.department,
-      section: task.section,
-      riskScore: Number(task.risk_score),
-      priority: task.priority,
-      reason: "Awaiting block assignment",
-    })),
-    trains: trains.map((train, index) => ({
-      train_key: train.id,
-      station_id: train.section ?? "C1",
-      stop_order: index + 1,
-      scheduled_departure: train.scheduled_departure ?? "00:00:00",
-      predicted_delay_min: 0,
-    })),
+    pendingTasks,
+    trains,
   };
 }
