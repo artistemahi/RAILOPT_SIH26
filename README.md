@@ -28,7 +28,9 @@ From the repository root, run one command in PowerShell:
 npm run demo
 ```
 
-The launcher reuses services whose ports are already occupied, starts missing required services in separate PowerShell windows, and checks their health:
+Prerequisites: Node.js 20+, Python 3.10+ (`py` or `python` on PATH), and PostgreSQL.
+
+On first run the launcher installs npm dependencies, creates each Python service's `.venv` and installs its `requirements.txt` (reinstalling only when that file changes), and creates `services/api/.env` and `apps/web/.env` from their `.env.example` files — set `DATABASE_URL` in `services/api/.env` for your PostgreSQL. It then reuses services whose ports are already occupied, starts missing required services in separate PowerShell windows titled `RAILOPT - <service>`, and waits for their health checks:
 
 | Required service    | Port | Health check  |
 | ------------------- | ---: | ------------- |
