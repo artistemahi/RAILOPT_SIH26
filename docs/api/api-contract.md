@@ -17,6 +17,7 @@
 | GET | /api/dashboard | KPIs, top tasks, top candidate window, corridor, alerts for the planning date | Implemented |
 | GET | /api/risk | Active tasks ranked by priority score (top 100) with priority inputs | Implemented |
 | GET | /api/planner | Block windows (Gantt rows), candidate tasks, planning-input checks, train movements | Implemented |
+| POST | /api/planner/plan-blocks | CP-SAT maintenance block plan for PENDING tasks over the planning horizon, with independent validation, KPIs and reasons for unscheduled tasks | Implemented |
 | POST | /api/optimize | CP-SAT train departure sequencing (minimum headway per section) | Implemented |
 | POST | /api/priority/predict | Run the ML priority model on all tasks and store results | Implemented |
 | GET | /api/priority, /api/priority/:taskId | Latest stored ML priority results | Implemented |
@@ -49,3 +50,20 @@ Before feature endpoints are added, specify:
 - Idempotency and asynchronous-job behavior where applicable
 - API versioning and pagination policy
 - Authorization policy when authentication is in scope
+
+## CP-SAT block plan model (`POST /api/planner/plan-blocks`)
+
+Node reads the `railopt.*` tables and posts them to the optimizer service (`POST /plan-blocks`). Horizon: planning date + `PLANNING_HORIZON_DAYS` (default 7).
+
+Candidate window engine (per task–window pair, first failing check is the rejection reason):
+`WINDOW_UNAVAILABLE`, `BLOCK_TYPE_MISMATCH` (a `COMBINED_BLOCK` window serves any type, because the dataset links power/traffic/signal tasks to combined blocks), `SECTION_NOT_COVERED` (via `window_sections`), `WINDOW_TOO_SHORT` (minimum duration + setup + release), `RESOURCE_UNAVAILABLE` (mandatory `task_resources`), `TRAIN_CONFLICT` (no train-free gap long enough on the task's section).
+
+Hard constraints: each task at most once; inside its window; no overlap with train movements on its section (overlapping trains merged); one task per section at a time (conservative until a compatibility engine exists); mandatory resource capacity (cumulative); mandatory finish-to-start dependencies between PENDING tasks with minimum gap. SCHEDULED/IN_PROGRESS tasks are not re-planned.
+
+Objective (lexicographic): maximise Σ priority weight of placed tasks; then minimise Σ weight × start so higher-priority work starts earlier.
+
+Independent validator re-checks: TASK_ONCE, WINDOW_VALID, WITHIN_WINDOW, DURATION, SECTION_COVERED, NO_TRAIN_OVERLAP, NO_SECTION_OVERLAP, RESOURCE_CAPACITY, DEPENDENCY_ORDER.
+
+KPIs: tasks scheduled, P1 (score ≥ 80) scheduled, priority-weighted completion, block utilisation = used task-minutes ÷ (available window minutes × sections covered).
+
+Tests: `services/optimizer/tests/test_block_planning.py` (`.venv/bin/python -m pytest` from `services/optimizer`).

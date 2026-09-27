@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DashboardHeader } from "../components/dashboard/DashboardHeader";
 import { Sidebar } from "../components/dashboard/Sidebar";
+import { BlockPlanPanel } from "../components/planner/BlockPlanPanel";
 import { ConstraintsSummary } from "../components/planner/ConstraintsSummary";
 import { GanttChart } from "../components/planner/GanttChart";
 import { ImpactLegend } from "../components/planner/ImpactLegend";
@@ -9,12 +10,13 @@ import { PlannerSummaryCards } from "../components/planner/PlannerSummaryCards";
 import { PlanningControls } from "../components/planner/PlanningControls";
 import { SelectedBlockDetails } from "../components/planner/SelectedBlockDetails";
 import {
+  generateBlockPlan,
   getBlockPlannerData,
   optimizePlanner,
   type OptimizeResult,
   type PlannerData,
 } from "../services/blockPlannerService";
-import type { SelectedBlock } from "../types/planner";
+import type { BlockPlan, SelectedBlock } from "../types/planner";
 
 function toMinutes(clock: string): number {
   const [hours, minutes] = clock.split(":").map(Number);
@@ -37,6 +39,25 @@ export default function BlockPlannerPage() {
   const [optimizationError, setOptimizationError] = useState<string | null>(
     null,
   );
+  const [blockPlan, setBlockPlan] = useState<BlockPlan | null>(null);
+  const [isPlanning, setIsPlanning] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  async function handleGeneratePlan() {
+    if (isPlanning) return;
+    setIsPlanning(true);
+    setPlanError(null);
+    try {
+      setBlockPlan(await generateBlockPlan());
+    } catch (error) {
+      console.error("Unable to generate block plan:", error);
+      setPlanError(
+        "Block planning failed. Check that the optimizer service is running.",
+      );
+    } finally {
+      setIsPlanning(false);
+    }
+  }
 
   useEffect(() => {
     void getBlockPlannerData()
@@ -135,11 +156,18 @@ export default function BlockPlannerPage() {
       <div className="ml-52 min-h-screen bg-slate-100">
         <DashboardHeader
           title="Block Planner"
-          subtitle="Block windows, candidate tasks and train overlaps for the planning date."
+          subtitle="CP-SAT block plan, block windows, candidate tasks and train overlaps."
         />
 
         <main className="space-y-4 p-4">
           <PlannerSummaryCards summary={data.summary} />
+
+          <BlockPlanPanel
+            plan={blockPlan}
+            isPlanning={isPlanning}
+            error={planError}
+            onGenerate={() => void handleGeneratePlan()}
+          />
 
           <PlanningControls
             planningDate={data.planningDate}
@@ -236,10 +264,10 @@ export default function BlockPlannerPage() {
           </section>
 
           <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-            Windows and candidate tasks come from the synthetic planning dataset.
-            A task is a candidate when its block requirement, block type and
-            duration fit the window; this is a pre-optimization view, not a
-            scheduled plan. Final approval rests with the authorized planner.
+            Data comes from the synthetic planning dataset. The window view below
+            the plan is pre-optimization (block requirement, type and duration
+            fit). The CP-SAT plan is a recommendation; final approval rests with
+            the authorized planner.
           </div>
         </main>
       </div>

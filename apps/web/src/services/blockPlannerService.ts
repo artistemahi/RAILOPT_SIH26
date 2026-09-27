@@ -1,4 +1,5 @@
 import type {
+  BlockPlan,
   ConstraintStatus,
   GanttRow,
   PendingTask,
@@ -86,4 +87,17 @@ export async function optimizePlanner(
   }
 
   return (await response.json()) as OptimizeResult;
+}
+
+export async function generateBlockPlan(): Promise<BlockPlan> {
+  const response = await fetch(
+    `${apiBaseUrl.replace(/\/$/, "")}/api/planner/plan-blocks`,
+    { method: "POST" },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Block planning API returned HTTP ${response.status}`);
+  }
+
+  return (await response.json()) as BlockPlan;
 }

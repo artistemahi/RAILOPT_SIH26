@@ -238,7 +238,8 @@ export type WindowSummary = {
 /**
  * Block windows starting on the planning date, with the train movements that
  * overlap each window. A task is a candidate for a window when its block
- * requirement points at the window's block, the block type matches, and its
+ * requirement points at the window's block, the block type matches (a
+ * COMBINED_BLOCK window serves any type), and its
  * minimum block duration plus setup and release time fits in the window.
  * Candidates are pre-optimization: nothing here is a scheduled assignment.
  */
@@ -276,7 +277,8 @@ export async function getWindowsForDate(
             (SELECT array_agg(DISTINCT br.task_id)
               FROM railopt.block_requirements br
               WHERE br.block_id = bw.block_id
-                AND br.required_block_type = bw.block_type
+                AND (br.required_block_type = bw.block_type
+                     OR bw.block_type = 'COMBINED_BLOCK')
                 AND COALESCE(br.minimum_block_duration_min, 0)
                     + COALESCE(br.setup_duration_min, 0)
                     + COALESCE(br.release_duration_min, 0) <= bw.duration_min

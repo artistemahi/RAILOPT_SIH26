@@ -23,11 +23,11 @@ export function PlanningControls({
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Planning inputs
+            Train departure sequencing
           </p>
           <p className="mt-0.5 text-xs text-slate-600">
-            Runs CP-SAT train departure sequencing (minimum headway per
-            section). Maintenance block optimization is not built yet.
+            Separate CP-SAT model: shifts train departures on the planning date
+            to keep a minimum headway per section.
           </p>
         </div>
         <span className="hidden text-[10px] font-semibold uppercase tracking-wide text-slate-400 sm:block">
