@@ -35,6 +35,7 @@ export interface BlockWindow {
   available: boolean;
   status: string;
   overlappingTrains: number;
+  overlappingFreight: number;
   impact: "Low" | "Medium" | "High";
   pendingTasks: number;
 }

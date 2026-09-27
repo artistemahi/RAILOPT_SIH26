@@ -83,6 +83,14 @@ export interface BlockPlan {
     section_exclusive: BlockPlanKpis & { solver_status: string; validation_passed: boolean };
     coordinated: BlockPlanKpis & { solver_status: string; validation_passed: boolean };
   };
+  asset_downtime?: {
+    assets_worked: number;
+    total_downtime_minutes: number;
+    outages: number;
+    bundled_assets: number;
+    worked_assets_availability_pct: number;
+    top: Array<{ asset_id: string; tasks: number; downtime_minutes: number; outages: number }>;
+  };
   assignments: BlockPlanAssignment[];
   unscheduled: BlockPlanUnscheduled[];
   rejection_summary: Record<string, number>;

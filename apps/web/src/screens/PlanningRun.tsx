@@ -30,7 +30,7 @@ export default function PlanningRun() {
     <>
       <PageHeader
         section="PLANNING RUN"
-        title="Generate a block plan"
+        title="Generate the weekly block plan"
         subtitle="One run: ML priority → candidate windows → compatibility → CP-SAT → independent validation"
         action={<GenerateButton />}
       />

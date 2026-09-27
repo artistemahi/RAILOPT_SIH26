@@ -3,12 +3,14 @@ import type { WhatIfChange, WhatIfSlot } from "./whatIf";
 
 export type PlanStatus = "DRAFT" | "APPROVED" | "REJECTED" | "SUPERSEDED";
 export type PlanTrigger = "PLAN" | "MODIFY" | "REPLAN";
+export type PlanType = "WEEKLY" | "MONTHLY";
 
 export interface PlanVersionSummary {
   runId: string;
   version: number;
   parentRunId: string | null;
   triggerType: PlanTrigger;
+  planType: PlanType;
   triggerDetail: {
     changes?: WhatIfChange[];
     pins?: Record<string, string>;
@@ -62,4 +64,68 @@ export interface PlanEvent {
   reason: string | null;
   details: Record<string, unknown> | null;
   createdAt: string;
+}
+
+export interface MonthlyPlan {
+  planning_date: string;
+  weeks: number;
+  horizon_days: number;
+  priority: BlockPlan["priority"];
+  solver: { status: string; wall_time_seconds: number; variables: number; constraints: number };
+  validation: BlockPlan["validation"];
+  kpis: {
+    tasks_considered: number;
+    tasks_with_candidates: number;
+    tasks_scheduled: number;
+    priority_weighted_completion_pct: number;
+    p1_total: number;
+    p1_scheduled: number;
+    overdue_at_start: number;
+    overdue_planned: number;
+    planned_late: number;
+  };
+  week_summary: Array<{
+    week: number;
+    start: string;
+    end: string;
+    projected: boolean;
+    tasks: number;
+    by_department: Record<string, number>;
+    minutes_used: number;
+    capacity_minutes: number;
+    sections: Record<string, { used: number; capacity: number }>;
+  }>;
+  assignments: Array<{
+    task_id: string;
+    week: number;
+    window_id: string;
+    section_id: string;
+    department: string;
+    priority_score: number;
+    due_date: string | null;
+    weeks_late: number;
+    overdue_at_start: boolean;
+  }>;
+  unplanned: Array<{
+    task_id: string;
+    priority_score: number;
+    section_id: string;
+    department: string;
+    due_date: string | null;
+    reason_code: string;
+    reason: string;
+  }>;
+  block_requests: Array<{
+    section_id: string;
+    tasks: string[];
+    departments: string[];
+    task_count: number;
+    needed_minutes: number;
+    longest_train_free_gap_minutes: number;
+  }>;
+  assumptions: string[];
+}
+
+export interface MonthlyVersion extends PlanVersionSummary {
+  plan: MonthlyPlan;
 }

@@ -7,6 +7,7 @@ import Analytics from "./screens/Analytics";
 import Blocks from "./screens/Blocks";
 import Compatibility from "./screens/Compatibility";
 import Integration from "./screens/Integration";
+import Monthly from "./screens/Monthly";
 import Optimizer from "./screens/Optimizer";
 import Overview from "./screens/Overview";
 import PlanningRun from "./screens/PlanningRun";
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/compatibility" element={<Compatibility />} />
         <Route path="/optimizer" element={<Optimizer />} />
         <Route path="/schedule" element={<Schedule />} />
+        <Route path="/monthly" element={<Monthly />} />
         <Route path="/validation" element={<Validation />} />
         <Route path="/what-if" element={<WhatIfPage />} />
         <Route path="/versions" element={<Versions />} />

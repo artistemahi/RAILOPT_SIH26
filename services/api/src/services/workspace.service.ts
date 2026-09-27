@@ -11,6 +11,7 @@ import {
   describeTask,
   getActiveTasks,
   getPlanningDate,
+  PRIORITY_BANDS,
   toImpactLevel,
   toPriorityLevel,
 } from "./planning-context.js";
@@ -67,6 +68,7 @@ export async function getBlockWindows() {
     available: boolean;
     status: string;
     overlapping_trains: string;
+    overlapping_freight: string;
     pending_tasks: string;
   }>(
     `SELECT bw.window_id, bw.block_id, bw.block_type, bw.section_id,
@@ -82,6 +84,10 @@ export async function getBlockWindows() {
               WHERE tm.section_id = bw.section_id
                 AND tm.entry_time < bw.end_time
                 AND tm.exit_time > bw.start_time) AS overlapping_trains,
+            (SELECT COUNT(*) FROM railopt.train_movements tm
+              WHERE tm.section_id = bw.section_id AND tm.is_freight
+                AND tm.entry_time < bw.end_time
+                AND tm.exit_time > bw.start_time) AS overlapping_freight,
             (SELECT COUNT(*) FROM railopt.maintenance_tasks t
               WHERE t.status = 'PENDING'
                 AND t.section_id IN (
@@ -109,6 +115,7 @@ export async function getBlockWindows() {
       available: row.available,
       status: row.status,
       overlappingTrains: Number(row.overlapping_trains),
+      overlappingFreight: Number(row.overlapping_freight),
       impact: toImpactLevel(Number(row.overlapping_trains)),
       pendingTasks: Number(row.pending_tasks),
     })),
@@ -362,7 +369,11 @@ export async function getSettings() {
     planningDate,
     planningDateSource: process.env.PLANNING_DATE ? "PLANNING_DATE env" : "first block-window day",
     horizonDays: HORIZON_DAYS,
-    priorityBands: { P1: ">= 80", P2: "65 – 79", P3: "< 65" },
+    priorityBands: {
+      P1: `>= ${PRIORITY_BANDS.P1}`,
+      P2: `${PRIORITY_BANDS.P2} – ${PRIORITY_BANDS.P1 - 1}`,
+      P3: `< ${PRIORITY_BANDS.P2}`,
+    },
     trainImpactBands: { High: ">= 7 trains", Medium: "3 – 6 trains", Low: "< 3 trains" },
     solver: { engine: "OR-Tools CP-SAT", timeLimitSeconds: SOLVER_TIME_LIMIT_SECONDS, whatIfMode: "deterministic (1 worker, seed 0)" },
     services: [

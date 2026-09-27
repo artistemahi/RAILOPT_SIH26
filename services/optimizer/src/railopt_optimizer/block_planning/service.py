@@ -15,7 +15,6 @@ from railopt_optimizer.block_planning.model import PlanningProblem, build_proble
 from railopt_optimizer.block_planning.solver import Assignment, SolveResult, solve
 from railopt_optimizer.block_planning.validator import ValidationReport, validate
 
-P1_THRESHOLD = 80
 SAMPLE_LIMIT = 20
 TASK_EXAMPLE_LIMIT = 5
 
@@ -63,7 +62,7 @@ def _kpis(
     used_minutes = sum(item.end - item.start for item in result.assignments)
     total_weight = sum(task.priority_score for task in problem.tasks.values())
     placed_weight = sum(problem.tasks[t].priority_score for t in placed)
-    p1_total = [t for t in problem.tasks.values() if t.priority_score >= P1_THRESHOLD]
+    p1_total = [t for t in problem.tasks.values() if t.priority_score >= problem.p1_threshold]
     return {
         "tasks_considered": len(problem.tasks),
         "tasks_with_candidates": len(candidates.by_task()),
@@ -173,6 +172,38 @@ def _compatibility_edges(compatibility: CompatibilityResult) -> list[dict[str, A
     ]
 
 
+def _asset_downtime(problem: PlanningProblem, assignments: list[Assignment]) -> dict[str, Any]:
+    """Planned maintenance time per asset: the asset is out of service while
+    it is worked on. Work on one asset inside one window is one outage."""
+    by_asset: dict[str, list[Assignment]] = {}
+    for item in assignments:
+        asset_id = problem.tasks[item.task_id].asset_id
+        if asset_id:
+            by_asset.setdefault(asset_id, []).append(item)
+    rows = []
+    for asset_id, items in by_asset.items():
+        windows = {item.window_id for item in items}
+        rows.append(
+            {
+                "asset_id": asset_id,
+                "tasks": len(items),
+                "downtime_minutes": sum(item.end - item.start for item in items),
+                "outages": len(windows),
+            }
+        )
+    rows.sort(key=lambda row: -row["downtime_minutes"])
+    horizon = problem.horizon_end
+    total = sum(row["downtime_minutes"] for row in rows)
+    return {
+        "assets_worked": len(rows),
+        "total_downtime_minutes": total,
+        "outages": sum(row["outages"] for row in rows),
+        "bundled_assets": sum(1 for row in rows if row["tasks"] > row["outages"]),
+        "worked_assets_availability_pct": round(100 * (1 - total / (horizon * len(rows))), 2) if rows else 100.0,
+        "top": rows[:SAMPLE_LIMIT],
+    }
+
+
 def _compatibility_summary(compatibility: CompatibilityResult) -> dict[str, Any]:
     return {
         "edges_by_type": compatibility.edge_counts(),
@@ -239,6 +270,7 @@ def summarize(run: PipelineRun) -> dict[str, Any]:
         },
         "kpis": _kpis(problem, run.candidates, result),
         "coordination": _coordination(problem, result.assignments),
+        "asset_downtime": _asset_downtime(problem, result.assignments),
         "compatibility": _compatibility_summary(run.compatibility),
         "assignments": [
             {

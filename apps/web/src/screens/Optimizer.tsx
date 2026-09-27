@@ -1,5 +1,6 @@
 import { DataTable, MetricStrip, PageHeader, SectionPanel, StatusBadge } from "../components/rail";
 import { usePlan } from "../state/PlanContext";
+import { PRIORITY_BANDS } from "../constants";
 import { Bar } from "../ui";
 import { GenerateButton, KeyValueGrid, PlanRequired, reasonLabels } from "./common";
 
@@ -52,7 +53,7 @@ export default function Optimizer() {
                 />
                 {plan.priority.note && <p style={{ marginTop: 8, color: "var(--state-warning)" }}>{plan.priority.note}</p>}
                 <p className="muted-note" style={{ marginTop: 8 }}>
-                  P1 = score ≥ 80: {plan.kpis.p1_scheduled} of {plan.kpis.p1_total} scheduled.
+                  P1 = score ≥ {PRIORITY_BANDS.P1}: {plan.kpis.p1_scheduled} of {plan.kpis.p1_total} scheduled.
                 </p>
               </SectionPanel>
             </div>

@@ -41,7 +41,7 @@ export const plan = handle("Loading plan version", (request) => getVersion(runId
 export const events = handle("Loading plan events", (request) =>
   getEvents(request.params.runId ? runId(request) : null),
 );
-export const create = handle("Block planning", (request) => createPlan(body(request).actor), true);
+export const create = handle("Block planning", (request) => createPlan(body(request)), true);
 export const approve = handle("Approval", (request) => approveVersion(runId(request), body(request)));
 export const reject = handle("Rejection", (request) => rejectVersion(runId(request), body(request)));
 export const modify = handle("Modification", (request) => modifyVersion(runId(request), body(request)), true);
