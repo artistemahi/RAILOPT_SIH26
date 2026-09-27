@@ -11,6 +11,7 @@ import {
   describeTask,
   getActiveTasks,
   getPlanningDate,
+  PRIORITY_BANDS,
   toImpactLevel,
   toPriorityLevel,
 } from "./planning-context.js";
@@ -368,7 +369,11 @@ export async function getSettings() {
     planningDate,
     planningDateSource: process.env.PLANNING_DATE ? "PLANNING_DATE env" : "first block-window day",
     horizonDays: HORIZON_DAYS,
-    priorityBands: { P1: ">= 80", P2: "65 – 79", P3: "< 65" },
+    priorityBands: {
+      P1: `>= ${PRIORITY_BANDS.P1}`,
+      P2: `${PRIORITY_BANDS.P2} – ${PRIORITY_BANDS.P1 - 1}`,
+      P3: `< ${PRIORITY_BANDS.P2}`,
+    },
     trainImpactBands: { High: ">= 7 trains", Medium: "3 – 6 trains", Low: "< 3 trains" },
     solver: { engine: "OR-Tools CP-SAT", timeLimitSeconds: SOLVER_TIME_LIMIT_SECONDS, whatIfMode: "deterministic (1 worker, seed 0)" },
     services: [

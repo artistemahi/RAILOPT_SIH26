@@ -2,7 +2,7 @@ import { pool } from "../config/database.js";
 import { config } from "../config/env.js";
 import { postJson } from "../integrations/python-service.client.js";
 import type { BlockPlanResponse } from "../types/python-services.js";
-import { getActiveTasks, getPlanningDate } from "./planning-context.js";
+import { getActiveTasks, getPlanningDate, PRIORITY_BANDS } from "./planning-context.js";
 import { generatePriorityScores } from "./priority.service.js";
 
 export type PrioritySource = {
@@ -153,6 +153,7 @@ export async function buildPlanningPayload(): Promise<PlanningPayload> {
       horizon_start: planningDate,
       horizon_days: horizonDays,
       time_limit_seconds: SOLVER_TIME_LIMIT_SECONDS,
+      p1_threshold: PRIORITY_BANDS.P1,
       tasks: pendingTasks.map((task) => ({
         task_id: task.taskId,
         section_id: task.sectionId,

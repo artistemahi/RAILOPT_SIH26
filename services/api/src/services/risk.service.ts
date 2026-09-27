@@ -47,15 +47,13 @@ export type RiskResponse = {
 };
 
 function getUrgency(score: number): RiskTaskResponse["urgency"] {
-  if (score >= 80) return "Critical";
-  if (score >= 65) return "High";
-  return "Medium";
+  const level = toPriorityLevel(score);
+  return level === "P1" ? "Critical" : level === "P2" ? "High" : "Medium";
 }
 
 function getStatus(score: number): RiskTaskResponse["status"] {
-  if (score >= 80) return "Attention Required";
-  if (score >= 65) return "Monitor";
-  return "Normal";
+  const level = toPriorityLevel(score);
+  return level === "P1" ? "Attention Required" : level === "P2" ? "Monitor" : "Normal";
 }
 
 function percentage(value: number, total: number): string {

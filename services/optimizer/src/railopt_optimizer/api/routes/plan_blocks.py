@@ -90,6 +90,7 @@ class PlanBlocksRequest(BaseModel):
     horizon_days: int = Field(default=7, ge=1, le=31)
     time_limit_seconds: float = Field(default=20, gt=0, le=120)
     compare_modes: bool = False
+    p1_threshold: float = Field(default=70, ge=0, le=100, description="Score at or above which a task is P1")
     include_details: bool = False
     tasks: list[PlanTask] = Field(min_length=1)
     windows: list[PlanWindow] = Field(min_length=1)

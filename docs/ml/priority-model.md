@@ -40,7 +40,13 @@ Tasks with `priority_source = MANUAL_OVERRIDE` keep their planner-set score and 
 
 ## Priority bands
 
-P1 ≥ 80, P2 ≥ 65, P3 below. Model scores on the dataset range 23–77, so P1 tasks are currently the planner overrides only.
+P1 ≥ 70, P2 60–69, P3 below (`PRIORITY_BANDS` in `services/api/src/services/planning-context.ts`).
+
+Why not the dataset's CRITICAL ≥ 80: the model compresses scores. Pending-task ML scores range 23–77, so a ≥ 80 band would only ever hold the two planner overrides. The bands are set on the model's score distribution instead: P1 is the top ~10% of pending tasks.
+
+On the dataset this gives 19 P1, 58 P2 and 115 P3 pending tasks. Of the 10 tasks the dataset itself marks CRITICAL, 8 are P1 under this band (2 overrides and 6 ML-scored). The other 2 get ML scores of 66 and 67 and land in P2; planner overrides remain the way to force such cases.
+
+Bands only label tasks and feed KPIs; CP-SAT optimises on the score itself.
 
 ## Previous model
 

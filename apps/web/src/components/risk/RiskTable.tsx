@@ -1,3 +1,4 @@
+import { PRIORITY_BANDS } from "../../constants";
 import { RiskBadge } from "./RiskBadge";
 import type { RiskTask } from "../../types/risk";
 
@@ -58,9 +59,9 @@ export function RiskTable({
                         <div
                           className={[
                             "h-full rounded-full",
-                            task.riskScore >= 80
+                            task.riskScore >= PRIORITY_BANDS.P1
                               ? "bg-red-500"
-                              : task.riskScore >= 65
+                              : task.riskScore >= PRIORITY_BANDS.P2
                                 ? "bg-amber-500"
                                 : "bg-emerald-500",
                           ].join(" ")}

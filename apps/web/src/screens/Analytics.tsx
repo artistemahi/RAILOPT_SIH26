@@ -1,5 +1,6 @@
 import { DataTable, MetricStrip, PageHeader, SectionPanel } from "../components/rail";
 import { usePlan } from "../state/PlanContext";
+import { PRIORITY_BANDS } from "../constants";
 import { Bar } from "../ui";
 import { DAY_MINUTES, GenerateButton, PlanRequired, dayLabel } from "./common";
 
@@ -22,7 +23,8 @@ function BarList({ rows, unit = "" }: { rows: Array<{ label: string; value: numb
 }
 
 function band(score: number) {
-  return score >= 80 ? "P1 (≥ 80)" : score >= 65 ? "P2 (65–79)" : "P3 (< 65)";
+  const { P1, P2 } = PRIORITY_BANDS;
+  return score >= P1 ? `P1 (≥ ${P1})` : score >= P2 ? `P2 (${P2}–${P1 - 1})` : `P3 (< ${P2})`;
 }
 
 export default function Analytics() {

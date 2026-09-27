@@ -26,6 +26,11 @@ def skill_level(value: str | None) -> int:
     return SKILL_LEVELS.get((value or "").strip().upper(), 0)
 
 
+# Default P1 band (priority score). The API sends its own value as
+# p1_threshold so both services use the same band.
+P1_THRESHOLD = 70.0
+
+
 def parse_time(value: str) -> datetime:
     """Parse an ISO-like timestamp ('2026-09-14 04:00:00' or with 'T')."""
     return datetime.fromisoformat(value.replace("Z", "").replace("T", " ").strip())
@@ -121,6 +126,7 @@ class PlanningProblem:
     trains_by_section: dict[str, list[Occupation]] = field(default_factory=dict)
     sections: dict[str, Section] = field(default_factory=dict)
     block_max_minutes: dict[str, int] = field(default_factory=dict)
+    p1_threshold: float = P1_THRESHOLD
 
     def to_clock(self, minute: int) -> str:
         return (self.horizon_start + timedelta(minutes=minute)).strftime("%Y-%m-%d %H:%M")
@@ -248,4 +254,5 @@ def build_problem(payload: dict) -> PlanningProblem:
         trains_by_section=trains_by_section,
         sections=sections,
         block_max_minutes=block_max_minutes,
+        p1_threshold=float(payload.get("p1_threshold") or P1_THRESHOLD),
     )

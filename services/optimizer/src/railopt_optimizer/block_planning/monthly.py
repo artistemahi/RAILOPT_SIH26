@@ -36,7 +36,6 @@ from railopt_optimizer.block_planning.model import build_problem
 
 WEEK_DAYS = 7
 PRIORITY_SCALE = 10
-P1_THRESHOLD = 80
 
 
 def _due_week(due: str | None, start: date) -> int | None:
@@ -310,7 +309,7 @@ def plan_month(payload: dict[str, Any], weeks: int = 5) -> dict[str, Any]:
 
     total_weight = sum(t.priority_score for t in problem.tasks.values())
     planned_weight = sum(problem.tasks[t].priority_score for t in planned)
-    p1 = [t for t in problem.tasks.values() if t.priority_score >= P1_THRESHOLD]
+    p1 = [t for t in problem.tasks.values() if t.priority_score >= problem.p1_threshold]
     overdue = [t for t in problem.tasks.values() if (_due_week(t.due_date, start) or 0) < 0]
     return {
         "planning_date": payload["horizon_start"],

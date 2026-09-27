@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/rail";
+import { PRIORITY_BANDS } from "../constants";
 import { RailMap, type SectionStyle } from "../components/network/RailMap";
 import { getNetwork } from "../services/networkService";
 import type { NetworkData, NetworkSection } from "../types/network";
@@ -11,8 +12,8 @@ const DAY_MS = 86_400_000;
 
 const legends: Record<Mode, Array<[string, string]>> = {
   priority: [
-    ["#dc2626", "Has P1 work (score ≥ 80)"],
-    ["#f59e0b", "Has P2 work (65–79)"],
+    ["#dc2626", `Has P1 work (score ≥ ${PRIORITY_BANDS.P1})`],
+    ["#f59e0b", `Has P2 work (${PRIORITY_BANDS.P2}–${PRIORITY_BANDS.P1 - 1})`],
     ["#16a34a", "P3 only"],
   ],
   trains: [

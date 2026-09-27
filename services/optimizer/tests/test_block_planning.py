@@ -262,3 +262,9 @@ def test_asset_downtime_counts_work_in_one_window_as_one_outage():
     assert downtime["total_downtime_minutes"] == 150  # two 75-minute jobs
     assert downtime["outages"] == 1
     assert downtime["bundled_assets"] == 1
+
+
+def test_p1_band_follows_the_threshold_sent_by_the_api():
+    # T1 scores 90, T2 scores 70.
+    assert plan_blocks(scenario())["kpis"]["p1_total"] == 2  # default 70
+    assert plan_blocks(scenario(p1_threshold=80))["kpis"]["p1_total"] == 1

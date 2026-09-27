@@ -29,7 +29,7 @@
 Definitions used by the read APIs:
 
 - Active task: status `PENDING`, `SCHEDULED` or `IN_PROGRESS`.
-- Priority score: latest ML `final_priority_score` if present, else the dataset `priority_score`. P1 ≥ 80, P2 ≥ 65, else P3.
+- Priority score: latest ML `final_priority_score` if present, else the dataset `priority_score`. P1 ≥ 70, P2 ≥ 60, else P3 (`PRIORITY_BANDS` in `planning-context.ts`; sent to the optimizer as `p1_threshold`).
 - Candidate task for a window: its `block_requirements` row points at the window's block, the block type matches, and minimum duration + setup + release fits the window. This is pre-optimization; nothing is scheduled.
 - Train impact of a window: train movements on the same section overlapping it in time (Low < 3, Medium 3–6, High ≥ 7).
 - Overdue days: planning date − due date, for active tasks.
@@ -83,7 +83,7 @@ Objective (lexicographic): maximise Σ priority weight of placed tasks; then min
 
 Independent validator (no CP-SAT or compatibility code) re-checks: TASK_ONCE, WINDOW_VALID, WITHIN_WINDOW, DURATION, SECTION_COVERED, SECTION_STATUS, BLOCK_CAPACITY, NO_TRAIN_OVERLAP, NO_ASSET_OVERLAP, TASK_TYPE_ORDER, RESOURCE_MATCH, RESOURCE_CAPACITY, DEPENDENCY_ORDER (+ SECTION_EXCLUSIVE for the comparison model).
 
-KPIs: tasks scheduled, P1 (score ≥ 80) scheduled, priority-weighted completion, block utilisation = used task-minutes ÷ (available window minutes × sections covered), multi-department task pairs working in parallel.
+KPIs: tasks scheduled, P1 (score ≥ 70) scheduled, priority-weighted completion, block utilisation = used task-minutes ÷ (available window minutes × sections covered), multi-department task pairs working in parallel.
 
 Compatibility rules not modelled: RULE_017 start-to-start (no such dependencies in the dataset), RULE_022–024 train priority/density/status preferences, RULE_025/030 approval (outside optimizer authority; the plan is a recommendation), RULE_031 inspection-before-repair and RULE_035–040 priority preferences (the objective uses the priority score), RULE_042 hard due dates, RULE_047–048 network contiguity and direction.
 

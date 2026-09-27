@@ -15,7 +15,6 @@ from railopt_optimizer.block_planning.model import PlanningProblem, build_proble
 from railopt_optimizer.block_planning.solver import Assignment, SolveResult, solve
 from railopt_optimizer.block_planning.validator import ValidationReport, validate
 
-P1_THRESHOLD = 80
 SAMPLE_LIMIT = 20
 TASK_EXAMPLE_LIMIT = 5
 
@@ -63,7 +62,7 @@ def _kpis(
     used_minutes = sum(item.end - item.start for item in result.assignments)
     total_weight = sum(task.priority_score for task in problem.tasks.values())
     placed_weight = sum(problem.tasks[t].priority_score for t in placed)
-    p1_total = [t for t in problem.tasks.values() if t.priority_score >= P1_THRESHOLD]
+    p1_total = [t for t in problem.tasks.values() if t.priority_score >= problem.p1_threshold]
     return {
         "tasks_considered": len(problem.tasks),
         "tasks_with_candidates": len(candidates.by_task()),
