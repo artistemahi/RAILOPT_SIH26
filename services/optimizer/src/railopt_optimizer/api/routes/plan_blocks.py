@@ -13,6 +13,9 @@ class PlanTask(BaseModel):
     section_id: str
     department: str | None = None
     priority_score: float = 0
+    asset_id: str | None = None
+    task_type: str | None = None
+    due_date: str | None = None
 
 
 class PlanWindow(BaseModel):
@@ -40,6 +43,8 @@ class PlanResource(BaseModel):
     resource_id: str
     capacity: int | None = None
     status: str | None = None
+    department: str | None = None
+    skills: str | None = None
     availability_start: str | None = None
     availability_end: str | None = None
 
@@ -49,6 +54,7 @@ class PlanTaskResource(BaseModel):
     resource_id: str
     quantity: int | None = None
     mandatory: bool | None = None
+    required_skill: str | None = None
 
 
 class PlanDependency(BaseModel):
@@ -65,10 +71,22 @@ class PlanTrain(BaseModel):
     exit_time: str
 
 
+class PlanSection(BaseModel):
+    section_id: str
+    electrified: bool | None = None
+    operational_status: str | None = None
+
+
+class PlanBlock(BaseModel):
+    block_id: str
+    max_duration_min: int | None = None
+
+
 class PlanBlocksRequest(BaseModel):
     horizon_start: str = Field(description="Planning date, YYYY-MM-DD")
     horizon_days: int = Field(default=7, ge=1, le=31)
     time_limit_seconds: float = Field(default=20, gt=0, le=120)
+    compare_modes: bool = False
     tasks: list[PlanTask] = Field(min_length=1)
     windows: list[PlanWindow] = Field(min_length=1)
     requirements: list[PlanRequirement]
@@ -76,6 +94,8 @@ class PlanBlocksRequest(BaseModel):
     task_resources: list[PlanTaskResource] = Field(default_factory=list)
     dependencies: list[PlanDependency] = Field(default_factory=list)
     trains: list[PlanTrain] = Field(default_factory=list)
+    sections: list[PlanSection] = Field(default_factory=list)
+    blocks: list[PlanBlock] = Field(default_factory=list)
 
 
 @router.post("/plan-blocks")

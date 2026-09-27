@@ -56,14 +56,30 @@ Before feature endpoints are added, specify:
 Node reads the `railopt.*` tables and posts them to the optimizer service (`POST /plan-blocks`). Horizon: planning date + `PLANNING_HORIZON_DAYS` (default 7).
 
 Candidate window engine (per task–window pair, first failing check is the rejection reason):
-`WINDOW_UNAVAILABLE`, `BLOCK_TYPE_MISMATCH` (a `COMBINED_BLOCK` window serves any type, because the dataset links power/traffic/signal tasks to combined blocks), `SECTION_NOT_COVERED` (via `window_sections`), `WINDOW_TOO_SHORT` (minimum duration + setup + release), `RESOURCE_UNAVAILABLE` (mandatory `task_resources`), `TRAIN_CONFLICT` (no train-free gap long enough on the task's section).
+`SECTION_INACTIVE` (RULE_050) and `NOT_ELECTRIFIED` (RULE_049, TRD work) at task level; then `WINDOW_UNAVAILABLE`, `BLOCK_TYPE_MISMATCH` (a `COMBINED_BLOCK` window serves any type, because the dataset links power/traffic/signal tasks to combined blocks), `SECTION_NOT_COVERED` (via `window_sections`), `BLOCK_CAPACITY` (RULE_008), `WINDOW_TOO_SHORT` (minimum duration + setup + release), `RESOURCE_UNAVAILABLE` (mandatory resource unavailable, capacity, skill RULE_012, department RULE_014, availability), `TRAIN_CONFLICT` (no train-free gap long enough on the task's section).
 
-Hard constraints: each task at most once; inside its window; no overlap with train movements on its section (overlapping trains merged); one task per section at a time (conservative until a compatibility engine exists); mandatory resource capacity (cumulative); mandatory finish-to-start dependencies between PENDING tasks with minimum gap. SCHEDULED/IN_PROGRESS tasks are not re-planned.
+Compatibility engine (NetworkX graph over tasks with candidates):
+
+| Edge | Rule | Effect in CP-SAT |
+| --- | --- | --- |
+| SHARED_RESOURCE | RULE_011 | cumulative resource capacity |
+| SAME_ASSET | RAILOPT assumption | no overlap on one asset |
+| DEPENDENCY | RULE_016 | finish-to-start with minimum gap |
+| TASK_TYPE_ORDER | RULE_032/033 | repair/replacement ends before testing starts on the same asset |
+| COORDINATION | RULE_001/034 | same section, shared window, no conflict: may run in parallel |
+
+It also reports dependency cycles (RULE_020) and successor-due-before-predecessor pairs (RULE_019).
+
+Hard constraints: each task at most once; start only inside a train-free gap of its window on its section; compatibility conflicts above; mandatory resource capacity; mandatory dependencies between PENDING tasks. SCHEDULED/IN_PROGRESS tasks are not re-planned.
 
 Objective (lexicographic): maximise Σ priority weight of placed tasks; then minimise Σ weight × start so higher-priority work starts earlier.
 
-Independent validator re-checks: TASK_ONCE, WINDOW_VALID, WITHIN_WINDOW, DURATION, SECTION_COVERED, NO_TRAIN_OVERLAP, NO_SECTION_OVERLAP, RESOURCE_CAPACITY, DEPENDENCY_ORDER.
+`compare_modes: true` (sent by the API) solves the same inputs a second time with one task per section at a time and returns both KPI sets under `comparison`.
 
-KPIs: tasks scheduled, P1 (score ≥ 80) scheduled, priority-weighted completion, block utilisation = used task-minutes ÷ (available window minutes × sections covered).
+Independent validator (no CP-SAT or compatibility code) re-checks: TASK_ONCE, WINDOW_VALID, WITHIN_WINDOW, DURATION, SECTION_COVERED, SECTION_STATUS, BLOCK_CAPACITY, NO_TRAIN_OVERLAP, NO_ASSET_OVERLAP, TASK_TYPE_ORDER, RESOURCE_MATCH, RESOURCE_CAPACITY, DEPENDENCY_ORDER (+ SECTION_EXCLUSIVE for the comparison model).
+
+KPIs: tasks scheduled, P1 (score ≥ 80) scheduled, priority-weighted completion, block utilisation = used task-minutes ÷ (available window minutes × sections covered), multi-department task pairs working in parallel.
+
+Compatibility rules not modelled: RULE_017 start-to-start (no such dependencies in the dataset), RULE_022–024 train priority/density/status preferences, RULE_025/030 approval (outside optimizer authority; the plan is a recommendation), RULE_031 inspection-before-repair and RULE_035–040 priority preferences (the objective uses the priority score), RULE_042 hard due dates, RULE_047–048 network contiguity and direction.
 
 Tests: `services/optimizer/tests/test_block_planning.py` (`.venv/bin/python -m pytest` from `services/optimizer`).

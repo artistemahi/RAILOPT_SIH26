@@ -88,6 +88,8 @@ export interface BlockPlanUnscheduled {
   example: string | null;
 }
 
+export type BlockPlanKpis = BlockPlan["kpis"];
+
 export interface BlockPlan {
   planning_date: string;
   horizon_days: number;
@@ -115,6 +117,32 @@ export interface BlockPlan {
     available_section_minutes: number;
     candidate_pairs: number;
     rejected_pairs: number;
+  };
+  coordination: {
+    multi_department_pairs: number;
+    windows_with_multi_department_work: number;
+    sample: Array<{
+      section_id: string;
+      tasks: string[];
+      departments: string[];
+      window_id: string;
+    }>;
+  };
+  compatibility: {
+    edges_by_type: Record<string, number>;
+    same_asset_groups: number;
+    task_type_orders: number;
+    dependency_cycles: string[][];
+    deadline_conflicts: Array<{
+      predecessor: string;
+      successor: string;
+      predecessor_due: string;
+      successor_due: string;
+    }>;
+  };
+  comparison?: {
+    section_exclusive: BlockPlanKpis & { solver_status: string; validation_passed: boolean };
+    coordinated: BlockPlanKpis & { solver_status: string; validation_passed: boolean };
   };
   assignments: BlockPlanAssignment[];
   unscheduled: BlockPlanUnscheduled[];

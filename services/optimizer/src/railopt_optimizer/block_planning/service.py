@@ -5,86 +5,54 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from railopt_optimizer.block_planning.candidates import generate_candidates
-from railopt_optimizer.block_planning.model import build_problem
-from railopt_optimizer.block_planning.solver import solve
+from railopt_optimizer.block_planning.candidates import CandidateResult, generate_candidates
+from railopt_optimizer.block_planning.compatibility import (
+    CompatibilityResult,
+    build_compatibility,
+)
+from railopt_optimizer.block_planning.model import PlanningProblem, build_problem
+from railopt_optimizer.block_planning.solver import Assignment, SolveResult, solve
 from railopt_optimizer.block_planning.validator import validate
 
 P1_THRESHOLD = 80
+SAMPLE_LIMIT = 20
 
 
-def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
-    problem = build_problem(payload)
-    candidates = generate_candidates(problem)
-    result = solve(problem, candidates, time_limit_seconds=float(payload.get("time_limit_seconds", 20)))
-    report = validate(problem, result.assignments)
+def _coordination(problem: PlanningProblem, assignments: list[Assignment]) -> dict[str, Any]:
+    """Planned tasks from different departments working on one section at once."""
+    pairs = []
+    windows: set[str] = set()
+    for index, a in enumerate(assignments):
+        for b in assignments[index + 1 :]:
+            task_a, task_b = problem.tasks[a.task_id], problem.tasks[b.task_id]
+            if (
+                task_a.section_id == task_b.section_id
+                and task_a.department != task_b.department
+                and a.start < b.end
+                and b.start < a.end
+            ):
+                windows.add(a.window_id)
+                pairs.append(
+                    {
+                        "section_id": task_a.section_id,
+                        "tasks": [a.task_id, b.task_id],
+                        "departments": sorted([task_a.department, task_b.department]),
+                        "window_id": a.window_id,
+                    }
+                )
+    return {
+        "multi_department_pairs": len(pairs),
+        "windows_with_multi_department_work": len(windows),
+        "sample": pairs[:SAMPLE_LIMIT],
+    }
 
-    placed = {item.task_id: item for item in result.assignments}
-    by_task = candidates.by_task()
-    rejections_by_task: dict[str, list] = {}
-    for rejection in candidates.rejections:
-        rejections_by_task.setdefault(rejection.task_id, []).append(rejection)
 
-    pending_predecessors: dict[str, list[str]] = {}
-    for dependency in problem.dependencies:
-        if dependency.successor in problem.tasks and dependency.predecessor in problem.tasks:
-            pending_predecessors.setdefault(dependency.successor, []).append(dependency.predecessor)
-
-    solved = result.status in ("OPTIMAL", "FEASIBLE")
-    unscheduled = []
-    for task in sorted(problem.tasks.values(), key=lambda t: -t.priority_score):
-        if task.task_id in placed:
-            continue
-        if not solved and task.task_id in by_task:
-            unscheduled.append(
-                {
-                    "task_id": task.task_id,
-                    "priority_score": task.priority_score,
-                    "reason_code": "SOLVER_" + result.status,
-                    "reason": f"Solver returned {result.status}; no plan was produced",
-                    "example": None,
-                }
-            )
-            continue
-        if task.task_id not in by_task:
-            codes = Counter(r.code for r in rejections_by_task.get(task.task_id, []))
-            detail = next(iter(rejections_by_task.get(task.task_id, [])), None)
-            unscheduled.append(
-                {
-                    "task_id": task.task_id,
-                    "priority_score": task.priority_score,
-                    "reason_code": codes.most_common(1)[0][0] if codes else "NO_CANDIDATE",
-                    "reason": "No feasible window: "
-                    + ", ".join(f"{count}× {code.lower().replace('_', ' ')}" for code, count in codes.most_common())
-                    if codes
-                    else "No feasible window",
-                    "example": detail.message if detail else None,
-                }
-            )
-            continue
-        blocked_by = [p for p in pending_predecessors.get(task.task_id, []) if p not in placed]
-        if blocked_by:
-            unscheduled.append(
-                {
-                    "task_id": task.task_id,
-                    "priority_score": task.priority_score,
-                    "reason_code": "DEPENDENCY_BLOCKED",
-                    "reason": f"Predecessor not planned: {', '.join(blocked_by[:3])}",
-                    "example": None,
-                }
-            )
-        else:
-            unscheduled.append(
-                {
-                    "task_id": task.task_id,
-                    "priority_score": task.priority_score,
-                    "reason_code": "NOT_SELECTED",
-                    "reason": "Had candidate windows, but section time, trains or resources "
-                    "were used by higher-weight work",
-                    "example": None,
-                }
-            )
-
+def _kpis(
+    problem: PlanningProblem,
+    candidates: CandidateResult,
+    result: SolveResult,
+) -> dict[str, Any]:
+    placed = {item.task_id for item in result.assignments}
     available_section_minutes = sum(
         window.duration * len(window.sections)
         for window in problem.windows.values()
@@ -94,9 +62,94 @@ def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
     total_weight = sum(task.priority_score for task in problem.tasks.values())
     placed_weight = sum(problem.tasks[t].priority_score for t in placed)
     p1_total = [t for t in problem.tasks.values() if t.priority_score >= P1_THRESHOLD]
-    p1_placed = [t for t in p1_total if t.task_id in placed]
-
     return {
+        "tasks_considered": len(problem.tasks),
+        "tasks_with_candidates": len(candidates.by_task()),
+        "tasks_scheduled": len(placed),
+        "p1_total": len(p1_total),
+        "p1_scheduled": sum(1 for t in p1_total if t.task_id in placed),
+        "priority_weighted_completion_pct": round(100 * placed_weight / total_weight, 1)
+        if total_weight
+        else 0.0,
+        "block_utilization_pct": round(100 * used_minutes / available_section_minutes, 1)
+        if available_section_minutes
+        else 0.0,
+        "used_section_minutes": used_minutes,
+        "available_section_minutes": available_section_minutes,
+        "candidate_pairs": len(candidates.candidates),
+        "rejected_pairs": sum(1 for r in candidates.rejections if r.window_id),
+    }
+
+
+def _unscheduled(
+    problem: PlanningProblem,
+    candidates: CandidateResult,
+    result: SolveResult,
+) -> list[dict[str, Any]]:
+    placed = {item.task_id for item in result.assignments}
+    by_task = candidates.by_task()
+    solved = result.status in ("OPTIMAL", "FEASIBLE")
+    rejections_by_task: dict[str, list] = {}
+    for rejection in candidates.rejections:
+        rejections_by_task.setdefault(rejection.task_id, []).append(rejection)
+
+    pending_predecessors: dict[str, list[str]] = {}
+    for dependency in problem.dependencies:
+        if dependency.successor in problem.tasks and dependency.predecessor in problem.tasks:
+            pending_predecessors.setdefault(dependency.successor, []).append(dependency.predecessor)
+
+    rows = []
+    for task in sorted(problem.tasks.values(), key=lambda t: -t.priority_score):
+        if task.task_id in placed:
+            continue
+        row = {"task_id": task.task_id, "priority_score": task.priority_score, "example": None}
+        if task.task_id not in by_task:
+            rejections = rejections_by_task.get(task.task_id, [])
+            codes = Counter(r.code for r in rejections)
+            row["reason_code"] = codes.most_common(1)[0][0] if codes else "NO_CANDIDATE"
+            row["reason"] = (
+                "No feasible window: "
+                + ", ".join(f"{n}× {code.lower().replace('_', ' ')}" for code, n in codes.most_common())
+                if codes
+                else "No feasible window"
+            )
+            row["example"] = rejections[0].message if rejections else None
+        elif not solved:
+            row["reason_code"] = "SOLVER_" + result.status
+            row["reason"] = f"Solver returned {result.status}; no plan was produced"
+        elif blocked := [p for p in pending_predecessors.get(task.task_id, []) if p not in placed]:
+            row["reason_code"] = "DEPENDENCY_BLOCKED"
+            row["reason"] = f"Predecessor not planned: {', '.join(blocked[:3])}"
+        else:
+            row["reason_code"] = "NOT_SELECTED"
+            row["reason"] = (
+                "Had candidate windows, but train-free time, resources or same-asset "
+                "work were taken by higher-weight tasks"
+            )
+        rows.append(row)
+    return rows
+
+
+def _compatibility_summary(compatibility: CompatibilityResult) -> dict[str, Any]:
+    return {
+        "edges_by_type": compatibility.edge_counts(),
+        "same_asset_groups": len(compatibility.same_asset_groups),
+        "task_type_orders": len(compatibility.type_orders),
+        "dependency_cycles": compatibility.dependency_cycles,
+        "deadline_conflicts": compatibility.deadline_conflicts,
+    }
+
+
+def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
+    problem = build_problem(payload)
+    candidates = generate_candidates(problem)
+    compatibility = build_compatibility(problem, candidates)
+    time_limit = float(payload.get("time_limit_seconds", 20))
+
+    result = solve(problem, candidates, compatibility, time_limit_seconds=time_limit)
+    report = validate(problem, result.assignments)
+
+    response: dict[str, Any] = {
         "solver": {
             "status": result.status,
             "wall_time_seconds": round(result.wall_time, 3),
@@ -109,23 +162,9 @@ def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
             "checks": report.checks,
             "violations": [vars(v) for v in report.violations],
         },
-        "kpis": {
-            "tasks_considered": len(problem.tasks),
-            "tasks_with_candidates": len(by_task),
-            "tasks_scheduled": len(placed),
-            "p1_total": len(p1_total),
-            "p1_scheduled": len(p1_placed),
-            "priority_weighted_completion_pct": round(100 * placed_weight / total_weight, 1)
-            if total_weight
-            else 0.0,
-            "block_utilization_pct": round(100 * used_minutes / available_section_minutes, 1)
-            if available_section_minutes
-            else 0.0,
-            "used_section_minutes": used_minutes,
-            "available_section_minutes": available_section_minutes,
-            "candidate_pairs": len(candidates.candidates),
-            "rejected_pairs": sum(1 for r in candidates.rejections if r.window_id),
-        },
+        "kpis": _kpis(problem, candidates, result),
+        "coordination": _coordination(problem, result.assignments),
+        "compatibility": _compatibility_summary(compatibility),
         "assignments": [
             {
                 "task_id": item.task_id,
@@ -141,8 +180,29 @@ def plan_blocks(payload: dict[str, Any]) -> dict[str, Any]:
             }
             for item in result.assignments
         ],
-        "unscheduled": unscheduled,
+        "unscheduled": _unscheduled(problem, candidates, result),
         "rejection_summary": dict(
             Counter(r.code for r in candidates.rejections if r.window_id).most_common()
         ),
     }
+
+    if payload.get("compare_modes"):
+        # Same inputs, earlier conservative model: one task per section at a time.
+        exclusive = solve(
+            problem, candidates, compatibility, time_limit_seconds=time_limit, allow_coordination=False
+        )
+        exclusive_report = validate(problem, exclusive.assignments, section_exclusive=True)
+        response["comparison"] = {
+            "section_exclusive": {
+                "solver_status": exclusive.status,
+                "validation_passed": exclusive_report.passed,
+                **_kpis(problem, candidates, exclusive),
+            },
+            "coordinated": {
+                "solver_status": result.status,
+                "validation_passed": report.passed,
+                **response["kpis"],
+            },
+        }
+
+    return response

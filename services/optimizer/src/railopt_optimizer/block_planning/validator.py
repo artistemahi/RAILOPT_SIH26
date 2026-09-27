@@ -1,7 +1,8 @@
 """Independent schedule validator.
 
 Re-checks every hard constraint directly from the planning inputs, without
-using the CP-SAT model, so a modelling bug cannot silently pass.
+using the CP-SAT model or the compatibility engine, so a modelling bug cannot
+silently pass.
 """
 
 from __future__ import annotations
@@ -9,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from railopt_optimizer.block_planning.model import PlanningProblem, block_type_satisfies
+
+ORDER_BEFORE_TESTING = {"REPAIR", "REPLACEMENT"}
 from railopt_optimizer.block_planning.solver import Assignment
 
 
@@ -35,14 +38,22 @@ CHECKS = [
     "WITHIN_WINDOW",
     "DURATION",
     "SECTION_COVERED",
+    "SECTION_STATUS",
+    "BLOCK_CAPACITY",
     "NO_TRAIN_OVERLAP",
-    "NO_SECTION_OVERLAP",
+    "NO_ASSET_OVERLAP",
+    "TASK_TYPE_ORDER",
+    "RESOURCE_MATCH",
     "RESOURCE_CAPACITY",
     "DEPENDENCY_ORDER",
 ]
 
 
-def validate(problem: PlanningProblem, assignments: list[Assignment]) -> ValidationReport:
+def validate(
+    problem: PlanningProblem,
+    assignments: list[Assignment],
+    section_exclusive: bool = False,
+) -> ValidationReport:
     violations: list[Violation] = []
     by_task: dict[str, Assignment] = {}
 
@@ -74,6 +85,32 @@ def validate(problem: PlanningProblem, assignments: list[Assignment]) -> Validat
             violations.append(
                 Violation("DURATION", item.task_id, "Duration differs from requirement incl. setup/release")
             )
+        section = problem.sections.get(task.section_id)
+        if section and (
+            (section.operational_status and section.operational_status != "ACTIVE")
+            or (task.department.upper() == "TRD" and section.electrified is False)
+        ):
+            violations.append(
+                Violation("SECTION_STATUS", item.task_id, f"{task.section_id} does not permit this work")
+            )
+        max_minutes = problem.block_max_minutes.get(window.block_id)
+        if max_minutes is not None and item.end - item.start > max_minutes:
+            violations.append(
+                Violation("BLOCK_CAPACITY", item.task_id, f"Exceeds {window.block_id} max {max_minutes} min")
+            )
+        for need in problem.needs.get(task.task_id, []):
+            resource = problem.resources.get(need.resource_id)
+            if (
+                resource is None
+                or not resource.available
+                or (need.required_skill and resource.skill < need.required_skill)
+                or (resource.department and task.department and resource.department != task.department)
+                or resource.start > item.start
+                or resource.end < item.end
+            ):
+                violations.append(
+                    Violation("RESOURCE_MATCH", item.task_id, f"{need.resource_id} cannot serve this task")
+                )
         if task.section_id not in window.sections:
             violations.append(
                 Violation("SECTION_COVERED", item.task_id, f"{window.window_id} does not cover {task.section_id}")
@@ -84,21 +121,41 @@ def validate(problem: PlanningProblem, assignments: list[Assignment]) -> Validat
                     Violation("NO_TRAIN_OVERLAP", item.task_id, f"Overlaps train movement {train.movement_id}")
                 )
 
-    # One task at a time per section.
-    by_section: dict[str, list[Assignment]] = {}
-    for item in by_task.values():
-        by_section.setdefault(problem.tasks[item.task_id].section_id, []).append(item)
-    for section_id, items in by_section.items():
+    def overlapping(items: list[Assignment], check: str, label: str) -> None:
         items.sort(key=lambda item: item.start)
-        for previous, current in zip(items, items[1:]):
-            if current.start < previous.end:
-                violations.append(
-                    Violation(
-                        "NO_SECTION_OVERLAP",
-                        current.task_id,
-                        f"Overlaps {previous.task_id} on {section_id}",
+        for index, current in enumerate(items):
+            for previous in items[:index]:
+                if current.start < previous.end:
+                    violations.append(
+                        Violation(check, current.task_id, f"Overlaps {previous.task_id} on {label}")
                     )
-                )
+
+    # Never two jobs on one asset at the same time.
+    by_asset: dict[str, list[Assignment]] = {}
+    for item in by_task.values():
+        asset_id = problem.tasks[item.task_id].asset_id
+        if asset_id:
+            by_asset.setdefault(asset_id, []).append(item)
+    for asset_id, items in by_asset.items():
+        overlapping(items, "NO_ASSET_OVERLAP", asset_id)
+        # Repair / replacement before testing on the same asset.
+        for first in items:
+            for then in items:
+                if (
+                    problem.tasks[first.task_id].task_type in ORDER_BEFORE_TESTING
+                    and problem.tasks[then.task_id].task_type == "TESTING"
+                    and then.start < first.end
+                ):
+                    violations.append(
+                        Violation("TASK_TYPE_ORDER", then.task_id, f"Testing starts before {first.task_id} ends")
+                    )
+
+    if section_exclusive:
+        by_section: dict[str, list[Assignment]] = {}
+        for item in by_task.values():
+            by_section.setdefault(problem.tasks[item.task_id].section_id, []).append(item)
+        for section_id, items in by_section.items():
+            overlapping(items, "SECTION_EXCLUSIVE", section_id)
 
     # Resource capacity at every start event.
     usage: dict[str, list[tuple[Assignment, int]]] = {}

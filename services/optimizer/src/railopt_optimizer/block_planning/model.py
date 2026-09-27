@@ -19,21 +19,11 @@ def block_type_satisfies(required: str, offered: str) -> bool:
     return required == offered or offered == COMBINED_BLOCK
 
 
-def merge_occupations(occupations: list["Occupation"]) -> list["Occupation"]:
-    """Union of overlapping train occupations on one section."""
-    merged: list[Occupation] = []
-    for item in sorted(occupations, key=lambda o: o.start):
-        if merged and item.start <= merged[-1].end:
-            last = merged[-1]
-            merged[-1] = Occupation(
-                f"{last.movement_id}+{item.movement_id}",
-                last.section_id,
-                last.start,
-                max(last.end, item.end),
-            )
-        else:
-            merged.append(item)
-    return merged
+SKILL_LEVELS = {"L1": 1, "L2": 2, "L3": 3}
+
+
+def skill_level(value: str | None) -> int:
+    return SKILL_LEVELS.get((value or "").strip().upper(), 0)
 
 
 def parse_time(value: str) -> datetime:
@@ -63,6 +53,9 @@ class Task:
     section_id: str
     department: str
     priority_score: float
+    asset_id: str = ""
+    task_type: str = ""
+    due_date: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,12 +73,22 @@ class Resource:
     available: bool
     start: int
     end: int
+    department: str = ""
+    skill: int = 0
 
 
 @dataclass(frozen=True)
 class ResourceNeed:
     resource_id: str
     quantity: int
+    required_skill: int = 0
+
+
+@dataclass(frozen=True)
+class Section:
+    section_id: str
+    electrified: bool | None
+    operational_status: str
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,8 @@ class PlanningProblem:
     needs: dict[str, list[ResourceNeed]]
     dependencies: list[Dependency]
     trains_by_section: dict[str, list[Occupation]] = field(default_factory=dict)
+    sections: dict[str, Section] = field(default_factory=dict)
+    block_max_minutes: dict[str, int] = field(default_factory=dict)
 
     def to_clock(self, minute: int) -> str:
         return (self.horizon_start + timedelta(minutes=minute)).strftime("%Y-%m-%d %H:%M")
@@ -135,6 +140,9 @@ def build_problem(payload: dict) -> PlanningProblem:
             section_id=row["section_id"],
             department=row.get("department") or "",
             priority_score=float(row.get("priority_score") or 0),
+            asset_id=row.get("asset_id") or "",
+            task_type=(row.get("task_type") or "").upper(),
+            due_date=row.get("due_date"),
         )
         for row in payload["tasks"]
     }
@@ -178,13 +186,19 @@ def build_problem(payload: dict) -> PlanningProblem:
             available=(row.get("status") or "").upper() == "AVAILABLE",
             start=start,
             end=end,
+            department=row.get("department") or "",
+            skill=skill_level(row.get("skills")),
         )
 
     needs: dict[str, list[ResourceNeed]] = {}
     for row in payload["task_resources"]:
         if row["task_id"] in tasks and row.get("mandatory"):
             needs.setdefault(row["task_id"], []).append(
-                ResourceNeed(row["resource_id"], int(row.get("quantity") or 1))
+                ResourceNeed(
+                    row["resource_id"],
+                    int(row.get("quantity") or 1),
+                    skill_level(row.get("required_skill")),
+                )
             )
 
     dependencies = [
@@ -208,6 +222,20 @@ def build_problem(payload: dict) -> PlanningProblem:
     for occupations in trains_by_section.values():
         occupations.sort(key=lambda item: item.start)
 
+    sections = {
+        row["section_id"]: Section(
+            section_id=row["section_id"],
+            electrified=row.get("electrified"),
+            operational_status=(row.get("operational_status") or "").upper(),
+        )
+        for row in payload.get("sections") or []
+    }
+    block_max_minutes = {
+        row["block_id"]: int(row["max_duration_min"])
+        for row in payload.get("blocks") or []
+        if row.get("max_duration_min") is not None
+    }
+
     return PlanningProblem(
         horizon_start=horizon_start,
         horizon_end=horizon_end,
@@ -218,4 +246,6 @@ def build_problem(payload: dict) -> PlanningProblem:
         needs=needs,
         dependencies=dependencies,
         trains_by_section=trains_by_section,
+        sections=sections,
+        block_max_minutes=block_max_minutes,
     )

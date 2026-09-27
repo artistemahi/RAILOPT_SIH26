@@ -24,8 +24,16 @@ export async function generateBlockPlan(): Promise<
   const taskIds = pendingTasks.map((task) => task.taskId);
 
   const range = [planningDate, horizonDays];
-  const [windows, requirements, resources, taskResources, dependencies, trains] =
-    await Promise.all([
+  const [
+    windows,
+    requirements,
+    resources,
+    taskResources,
+    dependencies,
+    trains,
+    sections,
+    blocks,
+  ] = await Promise.all([
       pool.query(
         `SELECT bw.window_id, bw.block_id, bw.block_type, bw.section_id,
                 to_char(bw.start_time, 'YYYY-MM-DD HH24:MI:SS') AS start_time,
@@ -47,13 +55,13 @@ export async function generateBlockPlan(): Promise<
         [taskIds],
       ),
       pool.query(
-        `SELECT resource_id, capacity, status,
+        `SELECT resource_id, capacity, status, department, skills,
                 to_char(availability_start, 'YYYY-MM-DD HH24:MI:SS') AS availability_start,
                 to_char(availability_end, 'YYYY-MM-DD HH24:MI:SS') AS availability_end
          FROM railopt.resources`,
       ),
       pool.query(
-        `SELECT task_id, resource_id, quantity, mandatory
+        `SELECT task_id, resource_id, quantity, mandatory, required_skill
          FROM railopt.task_resources WHERE task_id = ANY($1)`,
         [taskIds],
       ),
@@ -70,6 +78,10 @@ export async function generateBlockPlan(): Promise<
          WHERE exit_time > $1::date AND entry_time < $1::date + $2::int`,
         range,
       ),
+      pool.query(
+        `SELECT section_id, electrified, operational_status FROM railopt.sections`,
+      ),
+      pool.query(`SELECT block_id, max_duration_min FROM railopt.blocks`),
     ]);
 
   const result = await postJson<unknown, BlockPlanResponse>(
@@ -79,11 +91,16 @@ export async function generateBlockPlan(): Promise<
       horizon_start: planningDate,
       horizon_days: horizonDays,
       time_limit_seconds: SOLVER_TIME_LIMIT_SECONDS,
+      // Also solve the earlier one-task-per-section model for comparison.
+      compare_modes: true,
       tasks: pendingTasks.map((task) => ({
         task_id: task.taskId,
         section_id: task.sectionId,
         department: task.department,
         priority_score: task.priorityScore,
+        asset_id: task.assetId,
+        task_type: task.taskType,
+        due_date: task.dueDate,
       })),
       windows: windows.rows,
       requirements: requirements.rows,
@@ -91,8 +108,11 @@ export async function generateBlockPlan(): Promise<
       task_resources: taskResources.rows,
       dependencies: dependencies.rows,
       trains: trains.rows,
+      sections: sections.rows,
+      blocks: blocks.rows,
     },
-    (SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
+    // Two solves (coordinated + comparison) plus transfer.
+    (2 * SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
   );
 
   return { ...result, planning_date: planningDate, horizon_days: horizonDays };
