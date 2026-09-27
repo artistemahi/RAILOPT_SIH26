@@ -29,3 +29,6 @@ data/generated/*
 !data/generated/.gitkeep
 experiments/results/*
 !experiments/results/.gitkeep
+
+# Debug dumps of service responses (can be hundreds of MB)
+*-response.json
