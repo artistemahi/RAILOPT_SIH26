@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import BlockPlannerPage from "./pages/BlockPlanner";
 import DashboardPage from "./pages/Dashboard";
 import RiskManagementPage from "./pages/RiskManagement";
+import NetworkPage from "./pages/Network";
 import WhatIfPage from "./pages/WhatIf";
 
 export default function App() {
@@ -12,6 +13,7 @@ export default function App() {
       <Route path="/risk" element={<RiskManagementPage />} />
       <Route path="/planner" element={<BlockPlannerPage />} />
       <Route path="/what-if" element={<WhatIfPage />} />
+      <Route path="/network" element={<NetworkPage />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

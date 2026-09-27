@@ -18,6 +18,7 @@
 | GET | /api/risk | Active tasks ranked by priority score (top 100) with priority inputs | Implemented |
 | GET | /api/planner | Block windows (Gantt rows), candidate tasks, planning-input checks, train movements | Implemented |
 | POST | /api/planner/plan-blocks | CP-SAT maintenance block plan for PENDING tasks over the planning horizon, with independent validation, KPIs and reasons for unscheduled tasks | Implemented |
+| GET | /api/network | Stations and sections with coordinates and per-section planning signals (active tasks by priority, open critical defects, out-of-service assets, available windows in the horizon, trains on the planning date) | Implemented |
 | GET | /api/planner/what-if/options | Windows, resources, pending tasks and sections for building a scenario | Implemented |
 | POST | /api/planner/what-if | Solve the current plan and a changed scenario; return KPIs for both and the task-level difference | Implemented |
 | POST | /api/optimize | CP-SAT train departure sequencing (minimum headway per section) | Implemented |
