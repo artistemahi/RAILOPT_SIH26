@@ -1,0 +1,45 @@
+{
+  "model_version": "railopt-xgb-priority-v2",
+  "trained_at": "2026-09-27T16:05:55+00:00",
+  "training_data": "data/railopt_raw/07_ml/historical_records.csv",
+  "training_data_sha256": "dcaff3e39500a6cfb462f29d81120cef5f7a19db5635abace044c173c2ce6256",
+  "rows": 5000,
+  "target": "final_priority",
+  "features": [
+    "department",
+    "task_type",
+    "defect_severity",
+    "criticality",
+    "urgency",
+    "operational_impact",
+    "estimated_duration",
+    "was_overdue",
+    "repeat_defect"
+  ],
+  "excluded_features": {
+    "actual_duration": "known only after the work (leakage)",
+    "delay_to_completion": "known only after the work (leakage)",
+    "weather_risk": "no source for pending tasks",
+    "maintenance_frequency": "no source for pending tasks",
+    "previous_failure_indicator": "no source for pending tasks"
+  },
+  "label_note": "Synthetic label: final_priority is a deterministic function of record fields.",
+  "metrics": {
+    "cv5_xgboost": {
+      "mae": 2.604,
+      "r2": 0.9051
+    },
+    "cv5_linear_regression": {
+      "mae": 2.407,
+      "r2": 0.9183
+    },
+    "holdout_20pct_xgboost": {
+      "mae": 2.582,
+      "r2": 0.9027
+    }
+  },
+  "versions": {
+    "xgboost": "3.2.0",
+    "scikit-learn": "1.9.1"
+  }
+}

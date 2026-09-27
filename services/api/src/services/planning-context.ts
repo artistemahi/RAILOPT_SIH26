@@ -110,6 +110,14 @@ export async function getSections(): Promise<SectionInfo[]> {
   }));
 }
 
+/**
+ * OVERRIDE: an authorized planner's manual priority (dataset priority_source
+ * MANUAL_OVERRIDE, with a reason) takes precedence over the model.
+ * ML: latest final_priority_score from POST /api/priority/predict.
+ * DATASET: dataset priority_score when no ML run exists yet.
+ */
+export type PriorityScoreSource = "OVERRIDE" | "ML" | "DATASET";
+
 export type ActiveTask = {
   taskId: string;
   assetId: string;
@@ -126,7 +134,8 @@ export type ActiveTask = {
   assetCriticality: number | null;
   openDefects: number;
   priorityScore: number;
-  scoreSource: "ML" | "DATASET";
+  scoreSource: PriorityScoreSource;
+  overrideReason: string | null;
   overdueDays: number;
 };
 
@@ -153,6 +162,8 @@ export async function getActiveTasks(planningDate: string): Promise<ActiveTask[]
     open_defects: string;
     ml_score: string | null;
     dataset_score: string | null;
+    priority_source: string | null;
+    priority_override_reason: string | null;
     overdue_days: number;
   }>(
     `SELECT t.task_id,
@@ -172,6 +183,8 @@ export async function getActiveTasks(planningDate: string): Promise<ActiveTask[]
               WHERE d.asset_id = t.asset_id AND d.status <> 'RESOLVED') AS open_defects,
             pp.final_priority_score AS ml_score,
             t.priority_score AS dataset_score,
+            t.priority_source,
+            t.priority_override_reason,
             GREATEST(0, $1::date - t.due_date) AS overdue_days
      FROM railopt.maintenance_tasks t
      LEFT JOIN railopt.assets a ON a.asset_id = t.asset_id
@@ -183,7 +196,8 @@ export async function getActiveTasks(planningDate: string): Promise<ActiveTask[]
        LIMIT 1
      ) pp ON TRUE
      WHERE t.status = ANY($2)
-     ORDER BY COALESCE(pp.final_priority_score, t.priority_score, 0) DESC,
+     ORDER BY CASE WHEN t.priority_source = 'MANUAL_OVERRIDE' THEN t.priority_score
+                   ELSE COALESCE(pp.final_priority_score, t.priority_score, 0) END DESC,
               t.due_date ASC NULLS LAST,
               t.task_id`,
     [planningDate, ACTIVE_TASK_STATUSES],
@@ -205,10 +219,29 @@ export async function getActiveTasks(planningDate: string): Promise<ActiveTask[]
     assetCriticality:
       row.asset_criticality === null ? null : Number(row.asset_criticality),
     openDefects: Number(row.open_defects),
-    priorityScore: Math.round(Number(row.ml_score ?? row.dataset_score ?? 0)),
-    scoreSource: row.ml_score === null ? "DATASET" : "ML",
+    ...resolvePriority(row),
     overdueDays: Number(row.overdue_days ?? 0),
   }));
+}
+
+function resolvePriority(row: {
+  ml_score: string | null;
+  dataset_score: string | null;
+  priority_source: string | null;
+  priority_override_reason: string | null;
+}): Pick<ActiveTask, "priorityScore" | "scoreSource" | "overrideReason"> {
+  if (row.priority_source === "MANUAL_OVERRIDE" && row.dataset_score !== null) {
+    return {
+      priorityScore: Math.round(Number(row.dataset_score)),
+      scoreSource: "OVERRIDE",
+      overrideReason: row.priority_override_reason,
+    };
+  }
+  return {
+    priorityScore: Math.round(Number(row.ml_score ?? row.dataset_score ?? 0)),
+    scoreSource: row.ml_score === null ? "DATASET" : "ML",
+    overrideReason: null,
+  };
 }
 
 export function describeTask(task: Pick<ActiveTask, "taskType" | "assetType">): string {

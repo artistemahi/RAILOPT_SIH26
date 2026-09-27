@@ -5,6 +5,7 @@ import {
   toConditionLabel,
   toPriorityLevel,
   type PriorityLevel,
+  type PriorityScoreSource,
 } from "./planning-context.js";
 
 const MAX_TASKS = 100;
@@ -16,7 +17,8 @@ type RiskTaskResponse = {
   department: string;
   section: string;
   riskScore: number;
-  scoreSource: "ML" | "DATASET";
+  scoreSource: PriorityScoreSource;
+  overrideReason: string | null;
   priority: PriorityLevel;
   overdueDays: number;
   status: "Attention Required" | "Monitor" | "Normal";
@@ -74,6 +76,7 @@ export async function getRiskData(): Promise<RiskResponse> {
       section: task.sectionId,
       riskScore: score,
       scoreSource: task.scoreSource,
+      overrideReason: task.overrideReason,
       priority: toPriorityLevel(score),
       overdueDays: task.overdueDays,
       status: getStatus(score),

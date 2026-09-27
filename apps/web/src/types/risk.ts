@@ -8,7 +8,8 @@ export interface RiskTask {
   department: string;
   section: string;
   riskScore: number;
-  scoreSource: "ML" | "DATASET";
+  scoreSource: "OVERRIDE" | "ML" | "DATASET";
+  overrideReason: string | null;
   priority: PriorityLevel;
   overdueDays: number;
   status: RiskStatus;
@@ -44,7 +45,8 @@ export interface RiskDetails {
   department: string;
   section: string;
   priorityScore: number;
-  scoreSource: "ML" | "DATASET";
+  scoreSource: "OVERRIDE" | "ML" | "DATASET";
+  overrideReason: string | null;
   priority: PriorityLevel;
   taskStatus: string;
   overdueDays: number;

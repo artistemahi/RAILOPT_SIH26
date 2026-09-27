@@ -3,18 +3,76 @@ import { config } from "../config/env.js";
 import { postJson } from "../integrations/python-service.client.js";
 import type { BlockPlanResponse } from "../types/python-services.js";
 import { getActiveTasks, getPlanningDate } from "./planning-context.js";
+import { generatePriorityScores } from "./priority.service.js";
+
+export type PrioritySource = {
+  source: "ML" | "DATASET";
+  run_id: string | null;
+  model_version: string | null;
+  note: string | null;
+};
+
+/**
+ * Score every task with the ML priority model first, so CP-SAT plans with
+ * fresh ML priorities. If the ML service is unavailable the planner falls
+ * back to the dataset priority_score and says so in the response.
+ */
+async function scorePriorities(): Promise<PrioritySource> {
+  try {
+    const prediction = await generatePriorityScores();
+    return {
+      source: "ML",
+      run_id: prediction.run_id,
+      model_version: prediction.model_version,
+      note: null,
+    };
+  } catch (error) {
+    console.error("ML priority scoring failed; using stored priorities:", error);
+    // Planning then reads the latest stored ML scores, if any exist.
+    const previous = await pool.query<{
+      run_id: string;
+      model_version: string;
+      created: string;
+    }>(
+      `SELECT run_id, model_version,
+              to_char(created_at, 'YYYY-MM-DD HH24:MI') AS created
+       FROM railopt.priority_predictions
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    );
+    const run = previous.rows[0];
+    return run
+      ? {
+          source: "ML",
+          run_id: run.run_id,
+          model_version: run.model_version,
+          note: `ML service unavailable; using the previous ML run from ${run.created}`,
+        }
+      : {
+          source: "DATASET",
+          run_id: null,
+          model_version: null,
+          note: "ML service unavailable and no ML run stored; dataset priority_score used",
+        };
+  }
+}
 
 const DEFAULT_HORIZON_DAYS = 7;
 const SOLVER_TIME_LIMIT_SECONDS = 20;
 
+export type PlanningPayload = Record<string, unknown> & {
+  horizon_start: string;
+  horizon_days: number;
+  time_limit_seconds: number;
+};
+
 /**
- * Build the planning input from the railopt.* tables and ask the optimizer's
- * CP-SAT block planner for a plan. Only PENDING tasks are planned;
- * SCHEDULED and IN_PROGRESS work is treated as already committed.
+ * Planning input for the optimizer, built from the railopt.* tables with the
+ * current priorities (planner override, else latest ML score, else dataset).
+ * Only PENDING tasks are planned; SCHEDULED and IN_PROGRESS work is treated
+ * as already committed.
  */
-export async function generateBlockPlan(): Promise<
-  BlockPlanResponse & { planning_date: string; horizon_days: number }
-> {
+export async function buildPlanningPayload(): Promise<PlanningPayload> {
   const planningDate = await getPlanningDate();
   const horizonDays = Number(process.env.PLANNING_HORIZON_DAYS) || DEFAULT_HORIZON_DAYS;
 
@@ -24,8 +82,16 @@ export async function generateBlockPlan(): Promise<
   const taskIds = pendingTasks.map((task) => task.taskId);
 
   const range = [planningDate, horizonDays];
-  const [windows, requirements, resources, taskResources, dependencies, trains] =
-    await Promise.all([
+  const [
+    windows,
+    requirements,
+    resources,
+    taskResources,
+    dependencies,
+    trains,
+    sections,
+    blocks,
+  ] = await Promise.all([
       pool.query(
         `SELECT bw.window_id, bw.block_id, bw.block_type, bw.section_id,
                 to_char(bw.start_time, 'YYYY-MM-DD HH24:MI:SS') AS start_time,
@@ -47,13 +113,13 @@ export async function generateBlockPlan(): Promise<
         [taskIds],
       ),
       pool.query(
-        `SELECT resource_id, capacity, status,
+        `SELECT resource_id, capacity, status, department, skills,
                 to_char(availability_start, 'YYYY-MM-DD HH24:MI:SS') AS availability_start,
                 to_char(availability_end, 'YYYY-MM-DD HH24:MI:SS') AS availability_end
          FROM railopt.resources`,
       ),
       pool.query(
-        `SELECT task_id, resource_id, quantity, mandatory
+        `SELECT task_id, resource_id, quantity, mandatory, required_skill
          FROM railopt.task_resources WHERE task_id = ANY($1)`,
         [taskIds],
       ),
@@ -70,12 +136,13 @@ export async function generateBlockPlan(): Promise<
          WHERE exit_time > $1::date AND entry_time < $1::date + $2::int`,
         range,
       ),
+      pool.query(
+        `SELECT section_id, electrified, operational_status FROM railopt.sections`,
+      ),
+      pool.query(`SELECT block_id, max_duration_min FROM railopt.blocks`),
     ]);
 
-  const result = await postJson<unknown, BlockPlanResponse>(
-    config.optimizerServiceUrl,
-    "/plan-blocks",
-    {
+  return {
       horizon_start: planningDate,
       horizon_days: horizonDays,
       time_limit_seconds: SOLVER_TIME_LIMIT_SECONDS,
@@ -84,6 +151,9 @@ export async function generateBlockPlan(): Promise<
         section_id: task.sectionId,
         department: task.department,
         priority_score: task.priorityScore,
+        asset_id: task.assetId,
+        task_type: task.taskType,
+        due_date: task.dueDate,
       })),
       windows: windows.rows,
       requirements: requirements.rows,
@@ -91,9 +161,98 @@ export async function generateBlockPlan(): Promise<
       task_resources: taskResources.rows,
       dependencies: dependencies.rows,
       trains: trains.rows,
-    },
-    (SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
+      sections: sections.rows,
+      blocks: blocks.rows,
+  };
+}
+
+/**
+ * ML priority -> CP-SAT plan: score every task with the ML model, then ask
+ * the optimizer's CP-SAT block planner for a plan with those priorities.
+ */
+export async function generateBlockPlan(): Promise<
+  BlockPlanResponse & {
+    planning_date: string;
+    horizon_days: number;
+    priority: PrioritySource;
+  }
+> {
+  const priority = await scorePriorities();
+  const payload = await buildPlanningPayload();
+
+  const result = await postJson<unknown, BlockPlanResponse>(
+    config.optimizerServiceUrl,
+    "/plan-blocks",
+    // Also solve the earlier one-task-per-section model for comparison.
+    { ...payload, compare_modes: true },
+    // Two solves (coordinated + comparison) plus transfer.
+    (2 * SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
   );
 
-  return { ...result, planning_date: planningDate, horizon_days: horizonDays };
+  return {
+    ...result,
+    planning_date: payload.horizon_start,
+    horizon_days: payload.horizon_days,
+    priority,
+  };
+}
+
+export type WhatIfChange = {
+  type: string;
+  window_id?: string;
+  resource_id?: string;
+  task_id?: string;
+  section_id?: string;
+  minutes?: number;
+  priority_score?: number;
+  start_time?: string;
+  end_time?: string;
+};
+
+/**
+ * What-if: solve the current planning input and a changed copy, both
+ * deterministically, and return the difference. Uses the stored priorities
+ * (no new ML run) so only the listed changes differ.
+ */
+export async function runWhatIf(changes: WhatIfChange[]): Promise<unknown> {
+  const payload = await buildPlanningPayload();
+  return postJson<unknown, unknown>(
+    config.optimizerServiceUrl,
+    "/what-if",
+    { planning: payload, changes },
+    (2 * SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
+  );
+}
+
+type PayloadRow = Record<string, unknown>;
+
+/** Choices for the what-if form, from the same planning input. */
+export async function getWhatIfOptions(): Promise<unknown> {
+  const payload = await buildPlanningPayload();
+  const rows = (key: string) => (payload[key] as PayloadRow[]) ?? [];
+  return {
+    planning_date: payload.horizon_start,
+    horizon_days: payload.horizon_days,
+    windows: rows("windows").map((window) => ({
+      window_id: window.window_id,
+      block_type: window.block_type,
+      sections: window.sections,
+      start_time: window.start_time,
+      end_time: window.end_time,
+      available: window.available,
+    })),
+    resources: rows("resources").map((resource) => ({
+      resource_id: resource.resource_id,
+      department: resource.department,
+      skills: resource.skills,
+      status: resource.status,
+    })),
+    tasks: rows("tasks").map((task) => ({
+      task_id: task.task_id,
+      section_id: task.section_id,
+      department: task.department,
+      priority_score: task.priority_score,
+    })),
+    sections: rows("sections").map((section) => section.section_id),
+  };
 }

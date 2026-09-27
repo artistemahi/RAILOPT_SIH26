@@ -55,15 +55,46 @@ def by_task(result):
     return {item["task_id"]: item for item in result["assignments"]}
 
 
-def test_both_tasks_fit_sequentially_on_one_section():
+def test_compatible_departments_coordinate_on_one_section():
+    # T1 (S&T) and T2 (TRD): same section, no shared resource or asset.
     result = plan_blocks(scenario())
     assert result["solver"]["status"] == "OPTIMAL"
     assert result["validation"]["passed"]
     placed = by_task(result)
-    assert set(placed) == {"T1", "T2"}
-    first, second = sorted(placed.values(), key=lambda a: a["start_minute"])
-    assert second["start_minute"] >= first["end_minute"]  # no section overlap
-    assert placed["T1"]["start_minute"] == 120  # higher priority placed first
+    assert placed["T1"]["start_minute"] == placed["T2"]["start_minute"] == 120
+    assert result["coordination"]["multi_department_pairs"] == 1
+    assert result["compatibility"]["edges_by_type"] == {"COORDINATION": 1}
+
+
+def test_same_asset_work_never_overlaps_and_higher_priority_goes_first():
+    data = scenario()
+    for task in data["tasks"]:
+        task["asset_id"] = "A1"
+    result = plan_blocks(data)
+    placed = by_task(result)
+    assert result["validation"]["passed"]
+    assert placed["T1"]["start_minute"] == 120
+    assert placed["T2"]["start_minute"] >= placed["T1"]["end_minute"]
+
+
+def test_repair_precedes_testing_on_the_same_asset():
+    # T1 is testing with higher priority; repair T2 must still go first.
+    data = scenario()
+    data["tasks"][0].update(asset_id="A1", task_type="TESTING")
+    data["tasks"][1].update(asset_id="A1", task_type="REPAIR")
+    result = plan_blocks(data)
+    placed = by_task(result)
+    assert result["validation"]["passed"]
+    assert placed["T1"]["start_minute"] >= placed["T2"]["end_minute"]
+    assert result["compatibility"]["task_type_orders"] == 1
+
+
+def test_compare_modes_reports_section_exclusive_baseline():
+    result = plan_blocks(scenario(compare_modes=True))
+    comparison = result["comparison"]
+    assert comparison["section_exclusive"]["validation_passed"]
+    assert comparison["coordinated"]["tasks_scheduled"] == 2
+    assert comparison["section_exclusive"]["tasks_scheduled"] == 2
 
 
 def test_window_too_short_is_rejected_with_reason():
@@ -139,11 +170,16 @@ def test_validator_catches_a_bad_schedule():
     from railopt_optimizer.block_planning.solver import Assignment
     from railopt_optimizer.block_planning.validator import validate
 
-    problem = build_problem(scenario())
+    data = scenario()
+    for task in data["tasks"]:
+        task["asset_id"] = "A1"
+    problem = build_problem(data)
     bad = [Assignment("T1", "W1", 120, 195), Assignment("T2", "W1", 150, 225)]
     report = validate(problem, bad)
     assert not report.passed
-    assert {v.check for v in report.violations} == {"NO_SECTION_OVERLAP"}
+    assert {v.check for v in report.violations} == {"NO_ASSET_OVERLAP"}
+    exclusive = validate(build_problem(scenario()), bad, section_exclusive=True)
+    assert {v.check for v in exclusive.violations} == {"SECTION_EXCLUSIVE"}
 
 
 @pytest.mark.parametrize("available", [False])
@@ -174,4 +210,30 @@ def test_combined_block_window_serves_any_block_type():
     data["requirements"][0]["required_block_type"] = "POWER_BLOCK"
     result = plan_blocks(data)
     assert "T1" in by_task(result)
+    assert result["validation"]["passed"]
+
+
+def test_resource_skill_and_department_are_checked():
+    data = scenario(task_resources=[
+        {"task_id": "T1", "resource_id": "R1", "quantity": 1, "mandatory": True, "required_skill": "L3"},
+    ])
+    data["resources"][0].update(skills="L1", department="S&T")
+    result = plan_blocks(data)
+    reason = next(u for u in result["unscheduled"] if u["task_id"] == "T1")
+    assert reason["reason_code"] == "RESOURCE_UNAVAILABLE"
+    assert "skill" in reason["example"]
+
+
+def test_dependency_cycle_and_deadline_conflict_are_reported():
+    data = scenario(dependencies=[
+        {"predecessor_task_id": "T1", "successor_task_id": "T2", "minimum_gap_min": 0, "mandatory": True},
+        {"predecessor_task_id": "T2", "successor_task_id": "T1", "minimum_gap_min": 0, "mandatory": True},
+    ])
+    data["tasks"][0]["due_date"] = "2026-09-20"
+    data["tasks"][1]["due_date"] = "2026-09-18"
+    result = plan_blocks(data)
+    compatibility = result["compatibility"]
+    assert len(compatibility["dependency_cycles"]) == 1
+    assert len(compatibility["deadline_conflicts"]) == 1
+    assert result["assignments"] == []  # a cycle can never be satisfied
     assert result["validation"]["passed"]

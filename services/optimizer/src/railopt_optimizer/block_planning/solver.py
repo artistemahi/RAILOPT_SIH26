@@ -8,8 +8,12 @@ Hard constraints
     1. each task is placed at most once
     2. the task interval lies inside its window
     3. work on a section never overlaps a train movement on that section
-    4. at most one task at a time per section (conservative until a
-       compatibility engine allows sharing)
+       (start domain limited to train-free gaps from the candidate engine)
+    4. conflicts from the compatibility engine: tasks on the same asset never
+       overlap, and repair/replacement precede testing on that asset. Other
+       tasks on a section may work at the same time (coordination). With
+       allow_coordination=False, at most one task per section at a time
+       (the earlier conservative model, kept for comparison).
     5. mandatory resources: cumulative demand <= capacity
     6. mandatory finish-to-start dependencies between pending tasks: a
        successor is placed only if its predecessor is, and starts at least
@@ -17,8 +21,13 @@ Hard constraints
 
 Objective
     lexicographic: first maximise sum(priority weight of placed tasks); then,
-    among plans with the same placed weight, minimise sum(weight * start) so
+    when a reference plan is given (what-if), keep as many tasks as possible
+    in their reference window; then minimise sum(weight * start) so
     higher-priority work starts earlier.
+
+Deterministic mode (one worker, fixed seed) returns the same plan for the
+same inputs; multi-worker search may return a different plan of equal
+objective on each run.
 """
 
 from __future__ import annotations
@@ -28,7 +37,8 @@ from dataclasses import dataclass
 from ortools.sat.python import cp_model
 
 from railopt_optimizer.block_planning.candidates import CandidateResult
-from railopt_optimizer.block_planning.model import PlanningProblem, merge_occupations
+from railopt_optimizer.block_planning.compatibility import CompatibilityResult
+from railopt_optimizer.block_planning.model import PlanningProblem
 
 PRIORITY_SCALE = 10  # priority score 96.4 -> weight 964
 
@@ -54,15 +64,21 @@ class SolveResult:
 def solve(
     problem: PlanningProblem,
     candidates: CandidateResult,
+    compatibility: CompatibilityResult,
     time_limit_seconds: float = 20.0,
     workers: int = 8,
+    allow_coordination: bool = True,
+    deterministic: bool = False,
+    reference: dict[str, str] | None = None,
 ) -> SolveResult:
+    """reference: task_id -> window_id of a previous plan to stay close to."""
     model = cp_model.CpModel()
     by_task = candidates.by_task()
 
     placed: dict[tuple[str, str], cp_model.IntVar] = {}
     starts: dict[tuple[str, str], cp_model.IntVar] = {}
     intervals_by_section: dict[str, list] = {}
+    intervals_by_task: dict[str, list] = {}
     demands_by_resource: dict[str, list[tuple]] = {}
 
     task_present: dict[str, cp_model.IntVar] = {}
@@ -81,7 +97,11 @@ def solve(
             window = problem.windows[option.window_id]
             key = (task_id, window.window_id)
             x = model.NewBoolVar(f"x_{task_id}_{window.window_id}")
-            s = model.NewIntVar(window.start, window.end - option.duration, f"s_{task_id}_{window.window_id}")
+            # (2) + (3): start only inside a train-free gap long enough for the task
+            domain = cp_model.Domain.FromIntervals(
+                [[gap_start, gap_end - option.duration] for gap_start, gap_end in option.gaps]
+            )
+            s = model.NewIntVarFromDomain(domain, f"s_{task_id}_{window.window_id}")
             interval = model.NewOptionalFixedSizeIntervalVar(
                 s, option.duration, x, f"i_{task_id}_{window.window_id}"
             )
@@ -92,6 +112,7 @@ def solve(
             model.Add(t_end == s + option.duration).OnlyEnforceIf(x)
 
             intervals_by_section.setdefault(task.section_id, []).append(interval)
+            intervals_by_task.setdefault(task_id, []).append(interval)
             for need in problem.needs.get(task_id, []):
                 demands_by_resource.setdefault(need.resource_id, []).append(
                     (interval, need.quantity)
@@ -102,18 +123,18 @@ def solve(
         model.Add(t_start == 0).OnlyEnforceIf(present.Not())
         model.Add(t_end == 0).OnlyEnforceIf(present.Not())
 
-    # (3) + (4) section occupancy: tasks and trains on a section never overlap.
-    # Trains may overlap each other (multi-track sections), so their
-    # occupations are merged before joining the no-overlap set.
-    for section_id, intervals in intervals_by_section.items():
-        fixed = [
-            model.NewIntervalVar(train.start, train.end - train.start, train.end, f"train_{index}_{section_id}")
-            for index, train in enumerate(
-                merge_occupations(problem.trains_by_section.get(section_id, []))
+    # (4) compatibility conflicts
+    if allow_coordination:
+        for task_ids in compatibility.same_asset_groups.values():
+            model.AddNoOverlap(
+                [interval for task_id in task_ids for interval in intervals_by_task.get(task_id, [])]
             )
-            if train.end > train.start
-        ]
-        model.AddNoOverlap(intervals + fixed)
+    else:
+        for intervals in intervals_by_section.values():
+            model.AddNoOverlap(intervals)
+    for first, then in compatibility.type_orders:
+        both = [task_present[first], task_present[then]]
+        model.Add(task_end[first] <= task_start[then]).OnlyEnforceIf(both)
 
     # (5) resource capacity
     for resource_id, demands in demands_by_resource.items():
@@ -141,19 +162,27 @@ def solve(
         task_id: int(round(problem.tasks[task_id].priority_score * PRIORITY_SCALE))
         for task_id in task_present
     }
-    # Scale the primary term above the largest possible tie-break total so the
-    # tie-break can never trade away placed priority weight.
-    primary_scale = sum(weights.values()) * (problem.horizon_end + 1) + 1
+    # Each term is scaled above the largest possible total of the terms below
+    # it, so a lower term can never trade away a higher one.
+    earliness_bound = sum(weights.values()) * (problem.horizon_end + 1) + 1
+    kept = [
+        placed[(task_id, window_id)]
+        for task_id, window_id in (reference or {}).items()
+        if (task_id, window_id) in placed
+    ]
+    stability_scale = earliness_bound
+    primary_scale = (len(kept) + 1) * stability_scale
     model.Maximize(
-        sum(
-            primary_scale * weights[t] * task_present[t] - weights[t] * task_start[t]
-            for t in task_present
-        )
+        sum(primary_scale * weights[t] * task_present[t] for t in task_present)
+        + sum(stability_scale * x for x in kept)
+        - sum(weights[t] * task_start[t] for t in task_present)
     )
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_seconds
-    solver.parameters.num_search_workers = workers
+    solver.parameters.num_search_workers = 1 if deterministic else workers
+    if deterministic:
+        solver.parameters.random_seed = 0
     status = solver.Solve(model)
     status_name = solver.StatusName(status)
 
