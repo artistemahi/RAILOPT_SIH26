@@ -104,6 +104,12 @@ export const icons: Record<string, ReactNode> = {
       <path d="M9 18h3a6 6 0 0 0 6-6V9" />
     </Ico>
   ),
+  monthly: (
+    <Ico>
+      <rect x="3" y="4" width="18" height="16" rx="1" />
+      <path d="M3 9h18M8 2v4M16 2v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2" />
+    </Ico>
+  ),
   versions: (
     <Ico>
       <path d="M6 3h9l4 4v14H6z" />

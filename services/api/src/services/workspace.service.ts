@@ -67,6 +67,7 @@ export async function getBlockWindows() {
     available: boolean;
     status: string;
     overlapping_trains: string;
+    overlapping_freight: string;
     pending_tasks: string;
   }>(
     `SELECT bw.window_id, bw.block_id, bw.block_type, bw.section_id,
@@ -82,6 +83,10 @@ export async function getBlockWindows() {
               WHERE tm.section_id = bw.section_id
                 AND tm.entry_time < bw.end_time
                 AND tm.exit_time > bw.start_time) AS overlapping_trains,
+            (SELECT COUNT(*) FROM railopt.train_movements tm
+              WHERE tm.section_id = bw.section_id AND tm.is_freight
+                AND tm.entry_time < bw.end_time
+                AND tm.exit_time > bw.start_time) AS overlapping_freight,
             (SELECT COUNT(*) FROM railopt.maintenance_tasks t
               WHERE t.status = 'PENDING'
                 AND t.section_id IN (
@@ -109,6 +114,7 @@ export async function getBlockWindows() {
       available: row.available,
       status: row.status,
       overlappingTrains: Number(row.overlapping_trains),
+      overlappingFreight: Number(row.overlapping_freight),
       impact: toImpactLevel(Number(row.overlapping_trains)),
       pendingTasks: Number(row.pending_tasks),
     })),

@@ -250,3 +250,15 @@ def test_include_details_lists_candidates_rejections_and_edges():
     assert details["T2"]["scheduled_window"] in details["T2"]["candidate_windows"]
     assert all(set(edge) == {"a", "b", "kind", "rule", "detail"} for edge in result["compatibility_edges"])
     assert "task_details" not in plan_blocks(scenario())
+
+
+def test_asset_downtime_counts_work_in_one_window_as_one_outage():
+    data = scenario()
+    for task in data["tasks"]:
+        task["asset_id"] = "A1"
+    result = plan_blocks(data)
+    downtime = result["asset_downtime"]
+    assert downtime["assets_worked"] == 1
+    assert downtime["total_downtime_minutes"] == 150  # two 75-minute jobs
+    assert downtime["outages"] == 1
+    assert downtime["bundled_assets"] == 1

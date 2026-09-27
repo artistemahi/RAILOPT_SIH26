@@ -83,6 +83,7 @@ export default function Blocks() {
               { header: "Start", accessor: (row) => <span className="cell-mono">{row.start.slice(5)}</span>, width: 110 },
               { header: "Min", accessor: "durationMin", width: 55 },
               { header: "Trains", accessor: (row) => <StatusBadge status={impactStatus[row.impact]} label={`${row.overlappingTrains}`} />, width: 70 },
+              { header: "Freight", accessor: "overlappingFreight", width: 65 },
               { header: "Status", accessor: (row) => <StatusBadge status={row.available ? "AVAILABLE" : "BLOCKED"} label={row.status} />, width: 115 },
               { header: "Planned", accessor: (row) => (plan ? plannedByWindow.get(row.windowId)?.length ?? 0 : "–"), width: 70 },
             ]}
@@ -100,6 +101,7 @@ export default function Blocks() {
                   ["Time", `${selected.start} → ${selected.end.slice(11)}`],
                   ["Duration", `${selected.durationMin} min`],
                   ["Trains overlapping (primary section)", selected.overlappingTrains],
+                  ["of which freight (scheduled)", selected.overlappingFreight],
                   ["Pending tasks on these sections", selected.pendingTasks],
                   ["Status", selected.status],
                 ]}

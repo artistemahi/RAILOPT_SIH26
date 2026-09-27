@@ -306,3 +306,22 @@ export async function replanFrom(options: {
     priority: await storedPriority("Stored priorities (no new ML run); latest ML run from"),
   };
 }
+
+export const DEFAULT_MONTH_WEEKS = Number(process.env.MONTHLY_PLAN_WEEKS) || 5;
+
+/**
+ * Monthly rough-cut plan: ML priority first (as for the weekly plan), then
+ * CP-SAT assigns pending tasks to weeks. Week 1 uses the dataset's windows;
+ * later weeks repeat that pattern (projected, see the optimizer).
+ */
+export async function generateMonthlyPlan(weeks = DEFAULT_MONTH_WEEKS): Promise<Record<string, unknown>> {
+  const priority = await scorePriorities();
+  const payload = await buildPlanningPayload();
+  const result = await postJson<unknown, Record<string, unknown>>(
+    config.optimizerServiceUrl,
+    "/plan-month",
+    { planning: { ...payload, horizon_days: 7 }, weeks },
+    (SOLVER_TIME_LIMIT_SECONDS + 30) * 1000,
+  );
+  return { ...result, planning_date: payload.horizon_start, horizon_days: weeks * 7, priority };
+}

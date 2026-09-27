@@ -59,8 +59,8 @@ export default function Schedule() {
   return (
     <>
       <PageHeader
-        section="SCHEDULE"
-        title="Recommended maintenance schedule"
+        section="WEEKLY SCHEDULE"
+        title="Weekly block plan"
         subtitle="CP-SAT assignment of pending tasks to block windows · recommendation for planner review, not an authorised block"
         action={<GenerateButton />}
       />

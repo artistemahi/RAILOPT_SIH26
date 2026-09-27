@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from railopt_optimizer.block_planning.service import plan_blocks
+from railopt_optimizer.block_planning.monthly import plan_month
 from railopt_optimizer.block_planning.replan import replan
 from railopt_optimizer.block_planning.what_if import run_what_if
 
@@ -173,3 +174,18 @@ def replan_route(request: ReplanRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=f"Invalid replanning request: {error}") from error
     except Exception as error:
         raise HTTPException(status_code=500, detail="Replanning failed") from error
+
+
+class PlanMonthRequest(BaseModel):
+    planning: PlanBlocksRequest
+    weeks: int = Field(default=5, ge=1, le=8)
+
+
+@router.post("/plan-month")
+def plan_month_route(request: PlanMonthRequest) -> dict[str, Any]:
+    try:
+        return plan_month(request.planning.model_dump(), request.weeks)
+    except (ValueError, KeyError) as error:
+        raise HTTPException(status_code=422, detail=f"Invalid planning input: {error}") from error
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="Monthly planning failed") from error
