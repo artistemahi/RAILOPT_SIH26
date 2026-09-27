@@ -32,6 +32,7 @@ function toDetails(task: RiskTask): RiskDetails {
     section: task.section,
     priorityScore: task.riskScore,
     scoreSource: task.scoreSource,
+    overrideReason: task.overrideReason,
     priority: task.priority,
     taskStatus: task.taskStatus,
     overdueDays: task.overdueDays,
@@ -214,10 +215,11 @@ export default function RiskManagementPage() {
           </section>
 
           <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-            Priority scores come from the ML priority service when it has been
-            run (POST /api/priority/predict), otherwise from the dataset. They are
-            soft inputs to planning; hard operational constraints are enforced
-            separately.
+            Priority scores come from the ML priority model (refreshed on every
+            block plan run) unless an authorized planner has set a manual
+            override, which takes precedence. Before the first ML run the dataset
+            score is shown. Priorities are soft inputs; hard operational
+            constraints are enforced separately by CP-SAT.
           </div>
         </main>
       </div>
