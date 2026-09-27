@@ -146,4 +146,23 @@ export interface BlockPlanResponse {
   assignments: BlockPlanAssignment[];
   unscheduled: BlockPlanUnscheduled[];
   rejection_summary: Record<string, number>;
+  task_details?: Array<{
+    task_id: string;
+    section_id: string;
+    department: string;
+    task_type: string | null;
+    asset_id: string | null;
+    priority_score: number;
+    candidate_windows: string[];
+    rejections: Record<string, number>;
+    rejection_examples: Array<{ window_id: string | null; code: string; message: string }>;
+    scheduled_window: string | null;
+  }>;
+  compatibility_edges?: Array<{
+    a: string;
+    b: string;
+    kind: string;
+    rule: string;
+    detail: string;
+  }>;
 }

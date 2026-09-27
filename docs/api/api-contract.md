@@ -77,6 +77,8 @@ Hard constraints: each task at most once; start only inside a train-free gap of 
 
 Objective (lexicographic): maximise Σ priority weight of placed tasks; then minimise Σ weight × start so higher-priority work starts earlier.
 
+`include_details: true` (sent by the API) adds `task_details` (per pending task: candidate windows, rejection counts by code, up to 5 example rejections, chosen window) and `compatibility_edges` (every graph edge with kind, rule and detail). The Tasks and Coordination screens use these.
+
 `compare_modes: true` (sent by the API) solves the same inputs a second time with one task per section at a time and returns both KPI sets under `comparison`.
 
 Independent validator (no CP-SAT or compatibility code) re-checks: TASK_ONCE, WINDOW_VALID, WITHIN_WINDOW, DURATION, SECTION_COVERED, SECTION_STATUS, BLOCK_CAPACITY, NO_TRAIN_OVERLAP, NO_ASSET_OVERLAP, TASK_TYPE_ORDER, RESOURCE_MATCH, RESOURCE_CAPACITY, DEPENDENCY_ORDER (+ SECTION_EXCLUSIVE for the comparison model).
@@ -102,3 +104,46 @@ Body: `{ "changes": [ ... ] }`, up to 20 changes:
 | TRAIN_ADD | section_id, start_time, end_time | extra train occupation |
 
 Baseline and scenario use the same inputs and stored priorities (no new ML run) and are solved deterministically (one CP-SAT worker, fixed seed), so with no changes the difference is empty. The scenario objective prefers keeping tasks in their baseline window when that costs no priority weight, so only affected work moves. Response: `changes`, `baseline` and `scenario` (solver, validation, kpis), `diff` (`added`, `removed` with reasons, `moved`, `unchanged`), `scenario_assignments`. Invalid changes return 422 with the reason.
+
+## Workspace read endpoints (UI screens)
+
+All read the `railopt.*` tables; nothing is hardcoded.
+
+| Endpoint | Used by | Returns |
+| --- | --- | --- |
+| `GET /api/backlog` | Maintenance Tasks, Overview | active tasks (PENDING / SCHEDULED / IN_PROGRESS) with resolved priority, and task counts by status |
+| `GET /api/block-windows` | Block Windows, Schedule | every block window in the horizon with its sections, overlapping trains and pending tasks on those sections |
+| `GET /api/data/sources` | Data Sources | each dataset CSV, its table, CSV row count vs table row count, stored ML priority runs |
+| `GET /api/data/quality` | Data Quality | live integrity checks (foreign keys, time order, ranges, completeness, overdue work, CSV rows skipped on import) with PASS / WARN / FAIL |
+| `GET /api/settings` | Settings, top bar | planning date and its source, horizon, priority and train-impact bands, solver limits, service health, ML model card |
+
+Known data finding: `task_resources.csv` has 1509 rows but 1507 reach PostgreSQL, because two (task_id, resource_id) pairs are duplicated and the UNIQUE constraint drops the repeats. Data Quality reports this as a WARN.
+
+TMS, SMMS, TDMS and COA are shown on the Data Sources screen only as target architecture. RAILOPT does not connect to any of them.
+
+## Plan versions, approval and emergency replanning (`/api/plans`)
+
+Every plan RAILOPT produces is stored as a version in `railopt.planning_runs`; every action is logged in `railopt.plan_events`. The API creates both tables on first use (`services/api/src/database/plan-versions.sql`), so an existing database needs no manual migration. RAILOPT only recommends: a version becomes the plan in force only when a planner approves it. There is no login in this prototype; the planner types a name, which is recorded in the audit log.
+
+| Endpoint | Does |
+| --- | --- |
+| `GET /api/plans` | versions, newest first (summary + KPIs) |
+| `POST /api/plans` `{actor}` | ML priority → CP-SAT → validation, stored as a new DRAFT (trigger PLAN) |
+| `GET /api/plans/:runId` | one version with its full plan |
+| `GET /api/plans/events`, `GET /api/plans/:runId/events` | audit log |
+| `POST /api/plans/:runId/approve` `{actor, reason?}` | DRAFT → APPROVED; only if independent validation passed; the previously APPROVED version becomes SUPERSEDED |
+| `POST /api/plans/:runId/reject` `{actor, reason}` | DRAFT → REJECTED (reason required) |
+| `POST /api/plans/:runId/modify` `{actor, reason, changes?, pins?}` | planner edits of a DRAFT or APPROVED version → new DRAFT (trigger MODIFY) |
+| `POST /api/plans/:runId/replan` `{actor, reason, disruptionTime, changes}` | emergency replanning of the APPROVED version → new DRAFT (trigger REPLAN) |
+
+Changes use the what-if change types. `pins` maps task → window the planner requires (must be one of the task's feasible candidate windows, otherwise reported in `unmet_pins`).
+
+Replanning (optimizer `POST /replan`, deterministic CP-SAT):
+
+- Work in the parent plan that started before `disruptionTime` is **frozen**: kept exactly, not re-checked against the disruption, but it still occupies its asset and resources and satisfies dependencies.
+- No other work may start before `disruptionTime`.
+- All other tasks are re-optimised, preferring their window in the parent plan (same lexicographic objective as what-if).
+- The result is independently validated (frozen work is exempt from input re-checks only) and returned with a diff against the parent: frozen, unchanged, moved, added and dropped (with reason).
+- Disruptions, pins and the freeze time are inherited down the version chain: a modification of a replanned version keeps its disruptions and its frozen past, and a new disruption cannot be earlier than the parent's freeze time.
+
+Tests: `services/optimizer/tests/test_replan.py`.

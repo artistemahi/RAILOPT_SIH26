@@ -25,6 +25,14 @@ Objective
     in their reference window; then minimise sum(weight * start) so
     higher-priority work starts earlier.
 
+Replanning / planner edits
+    fixed: task -> (window, start) kept exactly (work already started)
+    pins: task -> window the planner requires
+    earliest_start: no other work may start before this minute
+    A pin that is not a feasible candidate is not enforced and is reported
+    in unmet_pins; fixed work of a task no longer planned is reported in
+    unmet_fixed.
+
 Deterministic mode (one worker, fixed seed) returns the same plan for the
 same inputs; multi-worker search may return a different plan of equal
 objective on each run.
@@ -32,7 +40,7 @@ objective on each run.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
@@ -59,6 +67,8 @@ class SolveResult:
     assignments: list[Assignment]
     variables: int
     constraints: int
+    unmet_fixed: list[str] = field(default_factory=list)
+    unmet_pins: list[str] = field(default_factory=list)
 
 
 def solve(
@@ -70,8 +80,15 @@ def solve(
     allow_coordination: bool = True,
     deterministic: bool = False,
     reference: dict[str, str] | None = None,
+    fixed: dict[str, tuple[str, int, int]] | None = None,
+    pins: dict[str, str] | None = None,
+    earliest_start: int = 0,
 ) -> SolveResult:
     """reference: task_id -> window_id of a previous plan to stay close to."""
+    fixed = fixed or {}
+    pins = pins or {}
+    unmet_fixed: list[str] = []
+    unmet_pins: list[str] = []
     model = cp_model.CpModel()
     by_task = candidates.by_task()
 
@@ -86,6 +103,8 @@ def solve(
     task_end: dict[str, cp_model.IntVar] = {}
 
     for task_id, options in by_task.items():
+        if task_id in fixed:
+            continue
         task = problem.tasks[task_id]
         present = model.NewBoolVar(f"present_{task_id}")
         t_start = model.NewIntVar(0, problem.horizon_end, f"start_{task_id}")
@@ -123,6 +142,47 @@ def solve(
         model.Add(t_start == 0).OnlyEnforceIf(present.Not())
         model.Add(t_end == 0).OnlyEnforceIf(present.Not())
 
+    # Committed (frozen) work: constant intervals that still block their
+    # asset and resources and anchor dependencies.
+    fixed_assignments: list[Assignment] = []
+    for task_id, (window_id, start, end) in fixed.items():
+        task = problem.tasks.get(task_id)
+        if task is None:
+            unmet_fixed.append(task_id)
+            continue
+        present = model.NewConstant(1)
+        task_present[task_id] = present
+        task_start[task_id] = model.NewConstant(start)
+        task_end[task_id] = model.NewConstant(end)
+        interval = model.NewIntervalVar(start, end - start, end, f"fixed_{task_id}")
+        intervals_by_task.setdefault(task_id, []).append(interval)
+        intervals_by_section.setdefault(task.section_id, []).append(interval)
+        for need in problem.needs.get(task_id, []):
+            demands_by_resource.setdefault(need.resource_id, []).append((interval, need.quantity))
+        if task.asset_id:
+            same_asset = [
+                other
+                for other in by_task
+                if other != task_id and problem.tasks[other].asset_id == task.asset_id
+            ]
+            if same_asset:
+                model.AddNoOverlap(
+                    [interval] + [i for other in same_asset for i in intervals_by_task.get(other, [])]
+                )
+        fixed_assignments.append(Assignment(task_id, window_id, start, end))
+
+    # Replanning: frozen work stays exactly where it is; nothing else may
+    # start before the disruption time; planner pins force a window.
+    for task_id, window_id in pins.items():
+        key = (task_id, window_id)
+        if key not in placed:
+            unmet_pins.append(task_id)
+            continue
+        model.Add(placed[key] == 1)
+    if earliest_start > 0:
+        for (task_id, window_id), start_var in starts.items():
+            model.Add(start_var >= earliest_start).OnlyEnforceIf(placed[(task_id, window_id)])
+
     # (4) compatibility conflicts
     if allow_coordination:
         for task_ids in compatibility.same_asset_groups.values():
@@ -133,6 +193,8 @@ def solve(
         for intervals in intervals_by_section.values():
             model.AddNoOverlap(intervals)
     for first, then in compatibility.type_orders:
+        if then in fixed:
+            continue  # testing already started; nothing to order against
         both = [task_present[first], task_present[then]]
         model.Add(task_end[first] <= task_start[then]).OnlyEnforceIf(both)
 
@@ -144,7 +206,7 @@ def solve(
     # (6) mandatory dependencies between tasks being planned
     for dependency in problem.dependencies:
         successor = task_present.get(dependency.successor)
-        if successor is None:
+        if successor is None or dependency.successor in fixed:
             continue
         if dependency.predecessor in problem.tasks:
             predecessor = task_present.get(dependency.predecessor)
@@ -161,6 +223,7 @@ def solve(
     weights = {
         task_id: int(round(problem.tasks[task_id].priority_score * PRIORITY_SCALE))
         for task_id in task_present
+        if task_id not in fixed
     }
     # Each term is scaled above the largest possible total of the terms below
     # it, so a lower term can never trade away a higher one.
@@ -173,9 +236,9 @@ def solve(
     stability_scale = earliness_bound
     primary_scale = (len(kept) + 1) * stability_scale
     model.Maximize(
-        sum(primary_scale * weights[t] * task_present[t] for t in task_present)
+        sum(primary_scale * weights[t] * task_present[t] for t in weights)
         + sum(stability_scale * x for x in kept)
-        - sum(weights[t] * task_start[t] for t in task_present)
+        - sum(weights[t] * task_start[t] for t in weights)
     )
 
     solver = cp_model.CpSolver()
@@ -188,6 +251,7 @@ def solve(
 
     assignments: list[Assignment] = []
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        assignments.extend(fixed_assignments)
         for (task_id, window_id), x in placed.items():
             if solver.Value(x):
                 start = solver.Value(starts[(task_id, window_id)])
@@ -206,4 +270,6 @@ def solve(
         assignments=sorted(assignments, key=lambda item: (item.start, item.task_id)),
         variables=len(proto.variables),
         constraints=len(proto.constraints),
+        unmet_fixed=unmet_fixed,
+        unmet_pins=unmet_pins,
     )

@@ -587,3 +587,7 @@ CREATE INDEX IF NOT EXISTS idx_priority_predictions_run
 
 CREATE INDEX IF NOT EXISTS idx_priority_predictions_created
     ON priority_predictions(created_at DESC);
+-- =========================================================
+-- 8. PLANNING RUNS / VERSIONS / AUDIT
+-- =========================================================
+-- See plan-versions.sql. The API also creates these tables on first use.
